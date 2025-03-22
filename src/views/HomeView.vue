@@ -183,6 +183,136 @@ const wipeHistory = async () => {
 const scrollToBottom = () => {
 	if (route.path === '/') window.scrollTo({ behavior: 'smooth', left: 0, top: document.body.scrollHeight })
 }
+
+/**
+ * ADDED FUNCTION
+ */
+
+import { 
+    fetchUserStatus,
+    updateUserStatus,
+    deleteMemoryPoints,
+    updateTags
+} from '@/services/CustomApiService'
+import type { UserStatus } from '@/types'
+import { jwtDecode } from 'jwt-decode'
+import { apiClient } from '@services/ApiService' // Import apiClient
+
+const userStatus = ref<UserStatus>({})
+const loadingStatus = ref(false)
+const statusError = ref<Error | null>(null)
+const username = ref('')
+const newTagName = ref('')
+const boxAddTag = ref<InstanceType<typeof ModalBox>>()
+/**
+ * Autocompila la textarea con il testo fornito
+ */
+ const autofillTextarea = (text: string) => {
+	userMessage.value = text;
+};
+
+// Recupera l'username dal localStorage
+onMounted(() => {
+    username.value = localStorage.getItem('username') || 'user'
+    loadUserStatus()
+})
+
+// Tags dell'utente corrente
+const currentUserTags = computed(() => {
+    return userStatus.value[username.value] || {}
+})
+
+// Carica lo stato dei tag
+// Remove the original loadUserStatus function and replace with:
+const loadUserStatus = async () => {
+    try {
+        loadingStatus.value = true
+        userStatus.value = await fetchUserStatus()
+    } catch (err) {
+        statusError.value = err as Error
+    } finally {
+        loadingStatus.value = false
+    }
+}
+
+// Aggiorna lo stato di un tag
+const updateTagStatus = async (tagName: string, newStatus: boolean) => {
+    try {
+        const updatedStatus = {
+            ...userStatus.value,
+            [username.value]: {
+                ...userStatus.value[username.value],
+                [tagName]: newStatus
+            }
+        }
+        
+        await updateUserStatus(updatedStatus)
+        userStatus.value = updatedStatus
+    } catch (err) {
+        statusError.value = err as Error
+        userStatus.value[username.value][tagName] = !newStatus
+    }
+}
+
+// Elimina le memory points associate al tag
+const deleteTagMemory = async (tagName: string) => {
+    try {
+        const filterData = { [tagName]: true }
+        
+        // 1. Delete memory points
+        await deleteMemoryPoints(filterData)
+        
+        // 2. Remove tag from all users
+        const updatedStatus = { ...userStatus.value }
+        Object.keys(updatedStatus).forEach(user => {
+            if (updatedStatus[user] && tagName in updatedStatus[user]) {
+                const { [tagName]: _, ...userTags } = updatedStatus[user]
+                updatedStatus[user] = userTags
+            }
+        })
+        
+        await updateUserStatus(updatedStatus)
+        
+        // 3. Update tags list
+        const currentTags = Object.keys(userStatus.value[username.value] || {})
+        const updatedTags = currentTags.filter(tag => tag !== tagName)
+        await updateTags(updatedTags)
+        
+        userStatus.value = updatedStatus
+        console.log(`Tag "${tagName}" eliminato con successo`)
+    } catch (err) {
+        statusError.value = err as Error
+        console.error(`Errore durante l'eliminazione: ${err}`)
+    }
+}
+
+// Creates a new tag
+const createNewTag = async () => {
+    try {
+        const updatedStatus = { ...userStatus.value }
+        Object.keys(updatedStatus).forEach(user => {
+            updatedStatus[user] = {
+                ...updatedStatus[user],
+                [newTagName.value]: false
+            }
+        })
+        
+        await updateUserStatus(updatedStatus)
+        
+        const currentTags = Object.keys(userStatus.value[username.value] || {})
+        if (!currentTags.includes(newTagName.value)) {
+            await updateTags([...currentTags, newTagName.value])
+        }
+        
+        userStatus.value = updatedStatus
+        newTagName.value = ''
+        boxAddTag.value?.toggleModal()
+    } catch (err) {
+        statusError.value = err as Error
+        console.error(`Errore durante la creazione del tag: ${err}`)
+    }
+}
+
 </script>
 
 <template>
@@ -239,6 +369,8 @@ const scrollToBottom = () => {
 		<div v-else class="grow" />
 		<div class="fixed bottom-0 left-0 flex w-full items-center justify-center bg-gradient-to-t from-base-200 px-2 py-4">
 			<div class="flex w-full max-w-screen-xl items-center gap-2 md:gap-4">
+
+				<!-- 	DROP DOWN ORIGINALE  -->
 				<div class="dropdown dropdown-top">
 					<button tabindex="0" :disabled="inputDisabled" class="btn btn-circle btn-primary shadow-lg">
 						<heroicons-bolt-solid class="size-5" />
@@ -252,7 +384,7 @@ const scrollToBottom = () => {
 								<span class="rounded-lg p-1 text-primary">
 									<ph-export-bold class="size-5" />
 								</span>
-								<span class="grow">Export conversation - modificato</span>
+								<span class="grow">Export conversation</span>
 							</button>
 						</li>
 						<li>
@@ -263,7 +395,7 @@ const scrollToBottom = () => {
 								<span class="rounded-lg p-1 text-success">
 									<ph-brain-fill class="size-5" />
 								</span>
-								<span class="grow">Upload memories - modificato</span>
+								<span class="grow">Upload memories</span>
 							</button>
 						</li>
 						<li>
@@ -274,7 +406,7 @@ const scrollToBottom = () => {
 								<span class="rounded-lg p-1 text-info">
 									<heroicons-globe-alt class="size-5" />
 								</span>
-								<span class="grow">Upload url - modificato</span>
+								<span class="grow">Upload url</span>
 							</button>
 						</li>
 						<li>
@@ -285,7 +417,7 @@ const scrollToBottom = () => {
 								<span class="rounded-lg p-1 text-warning">
 									<heroicons-document-text-solid class="size-5" />
 								</span>
-								<span class="grow">Upload file - modificato</span>
+								<span class="grow">Upload file</span>
 							</button>
 						</li>
 						<li>
@@ -293,11 +425,79 @@ const scrollToBottom = () => {
 								<span class="rounded-lg p-1 text-error">
 									<heroicons-trash-solid class="size-5" />
 								</span>
-								<span class="grow">Clear conversation - modificato</span>
+								<span class="grow">Clear conversation</span>
 							</button>
 						</li>
 					</ul>
 				</div>
+
+				<!-- DROP DOWN AGGIUNTIVO -->
+
+				<div class="dropdown dropdown-top">
+					<button tabindex="0" :disabled="inputDisabled" class="btn btn-circle btn-primary shadow-lg">
+						<heroicons-clipboard-document-list-solid class="size-5" />
+					</button>
+					<ul tabindex="0" class="dropdown-content join join-vertical !left-0 z-10 mb-6 w-[30rem] p-0 [&>li>*]:bg-base-100">
+						<!-- Sezione caricamento -->
+						<li v-if="loadingStatus" class="w-full">
+							<div class="btn join-item flex-nowrap px-2 text-left font-medium w-full">
+								<span class="rounded-lg p-1 text-info">
+									<span class="loading loading-spinner loading-xs"></span>
+								</span>
+								<span class="truncate">Caricamento tag...</span>
+							</div>
+						</li>
+
+						<!-- Sezione errore -->
+						<li v-if="statusError" class="w-full">
+							<div class="btn join-item flex-nowrap px-2 text-left font-medium text-error w-full">
+								<span class="rounded-lg p-1">
+									<heroicons-exclamation-triangle-20-solid class="size-5" />
+								</span>
+								<span class="truncate">Errore nel caricamento dei tag</span>
+							</div>
+						</li>
+
+						<!-- Tag dinamici basati sull'utente -->
+						<li v-for="(status, tagName) in currentUserTags" :key="String(tagName)" class="w-full">
+						    <button
+						        class="btn join-item flex-nowrap px-2 text-left font-medium w-full"
+						        :class="{'bg-success/20': status}"
+						        @click="updateTagStatus(String(tagName), !status)">
+						        <span class="rounded-lg p-1" :class="status ? 'text-success' : 'text-error'">
+						            <template v-if="status">
+						                <heroicons-check-circle-20-solid class="size-5 shrink-0" />
+						            </template>
+						            <template v-else>
+						                <heroicons-x-circle-20-solid class="size-5 shrink-0" />
+						            </template>
+						        </span>
+						        <span class="grow truncate max-w-[25rem]">{{ tagName }}</span>
+						        <span 
+						            class="rounded-lg p-1 text-error cursor-pointer hover:bg-base-200"
+						            @click.stop="deleteTagMemory(String(tagName))">
+						            <heroicons-trash-solid class="size-4 shrink-0" />
+						        </span>
+						    </button>
+						</li>
+						
+						<!-- Shortcut per aggiungere un nuovo tag -->
+						<li class="w-full">
+							<button
+								class="btn join-item flex-nowrap px-2 text-left font-medium w-full"
+								@click="boxAddTag?.toggleModal()">
+								<span class="rounded-lg p-1 text-primary">
+									<heroicons-plus-circle-20-solid class="size-5 shrink-0" />
+								</span>
+								<span class="grow truncate max-w-[25rem]">Aggiungi nuovo tag</span>
+							</button>
+						</li>
+					</ul>
+				</div>
+				<!-- FINE DROP DOWN AGGIUNTIVO -->
+
+
+
 				<div class="relative w-full">
 					<textarea
 						ref="textArea"
@@ -339,6 +539,15 @@ const scrollToBottom = () => {
 					<p>Write down the URL you want the Cat to digest :</p>
 					<InputBox v-model.trim="insertedURL" placeholder="Enter url..." />
 					<button class="btn btn-primary btn-sm" @click="dispatchWebsite">Send</button>
+				</div>
+			</ModalBox>
+			
+			<ModalBox ref="boxAddTag">
+				<div class="flex flex-col items-center justify-center gap-4 text-neutral">
+					<h3 class="text-lg font-bold">Nuovo Tag</h3>
+					<p>Inserisci il nome del nuovo tag:</p>
+					<InputBox v-model.trim="newTagName" placeholder="Nome tag..." />
+					<button class="btn btn-primary btn-sm" @click="createNewTag">Crea Tag</button>
 				</div>
 			</ModalBox>
 		</Teleport>

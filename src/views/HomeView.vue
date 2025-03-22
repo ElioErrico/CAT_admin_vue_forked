@@ -195,8 +195,7 @@ import {
     updateTags
 } from '@/services/CustomApiService'
 import type { UserStatus } from '@/types'
-import { jwtDecode } from 'jwt-decode'
-import { apiClient } from '@services/ApiService' // Import apiClient
+import UserService from '@services/UserService' // Import UserService
 
 const userStatus = ref<UserStatus>({})
 const loadingStatus = ref(false)
@@ -211,11 +210,26 @@ const boxAddTag = ref<InstanceType<typeof ModalBox>>()
 	userMessage.value = text;
 };
 
-// Recupera l'username dal localStorage
+
 onMounted(() => {
-    username.value = localStorage.getItem('username') || 'user'
-    loadUserStatus()
+    // Get username from UserService
+    username.value = UserService.getCurrentUsername()
+    
+    // If we have a username, load user status
+    if (username.value) {
+        loadUserStatus()
+    } else {
+        // If no username is available yet, set up a watcher to detect when it becomes available
+        const unwatchUsername = watch(username, (newUsername) => {
+            if (newUsername) {
+                loadUserStatus()
+                // Remove the watcher once we have a username
+                unwatchUsername()
+            }
+        })
+    }
 })
+
 
 // Tags dell'utente corrente
 const currentUserTags = computed(() => {

@@ -11,12 +11,24 @@ const UserService = Object.freeze({
 	getUser: async (id: string) => {
 		return await tryRequest(apiClient?.api?.users.readUser(id), 'The selected user id does not exist', 'Unable to get the user')
 	},
+
+	
 	impersonateUser: async (credentials: UserCredentials) => {
+		// Store the username in localStorage when authenticating
+		if (credentials.username) {
+			localStorage.setItem('current_username', credentials.username)
+		}
+		
 		return await tryRequest(
 			apiClient?.api?.userAuth.authToken(credentials),
 			`Impersonating the user ${credentials.username}`,
 			`Unable to impersonate the user ${credentials.username}`,
 		)
+	},
+
+	// Add a method to get the current username
+	getCurrentUsername: () => {
+		return localStorage.getItem('current_username') || 'user'
 	},
 	getAvailablePermissions: async () => {
 		return await tryRequest(

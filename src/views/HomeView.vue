@@ -196,6 +196,7 @@ import {
 } from '@/services/CustomApiService'
 import type { UserStatus } from '@/types'
 import UserService from '@services/UserService' // Import UserService
+import { useMainStore } from '@stores/useMainStore' // Add this import
 
 const userStatus = ref<UserStatus>({})
 const loadingStatus = ref(false)
@@ -203,6 +204,10 @@ const statusError = ref<Error | null>(null)
 const username = ref('')
 const newTagName = ref('')
 const boxAddTag = ref<InstanceType<typeof ModalBox>>()
+
+// Add this to get the store and jwtPayload
+const mainStore = useMainStore()
+const { jwtPayload } = storeToRefs(mainStore)
 /**
  * Autocompila la textarea con il testo fornito
  */
@@ -212,16 +217,17 @@ const boxAddTag = ref<InstanceType<typeof ModalBox>>()
 
 
 onMounted(() => {
-    // Get username from UserService
-    username.value = UserService.getCurrentUsername()
+    // Get username from jwtPayload instead of UserService
+    username.value = jwtPayload.value?.username || ''
     
     // If we have a username, load user status
     if (username.value) {
         loadUserStatus()
     } else {
         // If no username is available yet, set up a watcher to detect when it becomes available
-        const unwatchUsername = watch(username, (newUsername) => {
+        const unwatchUsername = watch(() => jwtPayload.value?.username, (newUsername) => {
             if (newUsername) {
+                username.value = newUsername
                 loadUserStatus()
                 // Remove the watcher once we have a username
                 unwatchUsername()

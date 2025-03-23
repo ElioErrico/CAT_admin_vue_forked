@@ -457,7 +457,8 @@ const createNewTag = async () => {
 					<button tabindex="0" :disabled="inputDisabled" class="btn btn-circle btn-primary shadow-lg">
 						<heroicons-clipboard-document-list-solid class="size-5" />
 					</button>
-					<ul tabindex="0" class="dropdown-content join join-vertical !left-0 z-10 mb-6 w-[30rem] p-0 [&>li>*]:bg-base-100">
+					<ul tabindex="0" class="dropdown-content join join-vertical !left-0 z-10 mb-6 w-[30rem] p-0 [&>li>*]:bg-base-100"
+					    :class="{'max-h-[700px] overflow-y-auto': Object.keys(currentUserTags).length > 15}">
 						<!-- Sezione caricamento -->
 						<li v-if="loadingStatus" class="w-full">
 							<div class="btn join-item flex-nowrap px-2 text-left font-medium w-full">

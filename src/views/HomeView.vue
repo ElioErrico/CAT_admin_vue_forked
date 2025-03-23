@@ -258,19 +258,31 @@ const loadUserStatus = async () => {
 // Aggiorna lo stato di un tag
 const updateTagStatus = async (tagName: string, newStatus: boolean) => {
     try {
+        // Create a copy of the current user's tags
+        const userTags = { ...userStatus.value[username.value] || {} }
+        
+        // If setting a tag to true, set all other tags to false
+        if (newStatus) {
+            // Set all tags to false first
+            Object.keys(userTags).forEach(tag => {
+                userTags[tag] = false
+            })
+        }
+        
+        // Set the selected tag to the new status
+        userTags[tagName] = newStatus
+        
         const updatedStatus = {
             ...userStatus.value,
-            [username.value]: {
-                ...userStatus.value[username.value],
-                [tagName]: newStatus
-            }
+            [username.value]: userTags
         }
         
         await updateUserStatus(updatedStatus)
         userStatus.value = updatedStatus
     } catch (err) {
         statusError.value = err as Error
-        userStatus.value[username.value][tagName] = !newStatus
+        // Revert to previous state in case of error
+        userStatus.value = { ...userStatus.value }
     }
 }
 

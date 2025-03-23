@@ -277,19 +277,21 @@ const updateTagStatus = async (tagName: string, newStatus: boolean) => {
 // Elimina le memory points associate al tag
 const deleteTagMemory = async (tagName: string) => {
     try {
-        const filterData = { [tagName]: true }
+        // Include both the tag and the user_id in the filter data
+        const filterData = { 
+            [tagName]: true,
+            [username.value]: true // Add user_id to the filter data
+        }
         
-        // 1. Delete memory points
+        // 1. Delete memory points with the enhanced filter
         await deleteMemoryPoints(filterData)
         
-        // 2. Remove tag from all users
+        // 2. Remove tag only from current user
         const updatedStatus = { ...userStatus.value }
-        Object.keys(updatedStatus).forEach(user => {
-            if (updatedStatus[user] && tagName in updatedStatus[user]) {
-                const { [tagName]: _, ...userTags } = updatedStatus[user]
-                updatedStatus[user] = userTags
-            }
-        })
+        if (updatedStatus[username.value] && tagName in updatedStatus[username.value]) {
+            const { [tagName]: _, ...userTags } = updatedStatus[username.value]
+            updatedStatus[username.value] = userTags
+        }
         
         await updateUserStatus(updatedStatus)
         
@@ -309,16 +311,23 @@ const deleteTagMemory = async (tagName: string) => {
 // Creates a new tag
 const createNewTag = async () => {
     try {
+        // Create or update tag only for the current user
         const updatedStatus = { ...userStatus.value }
-        Object.keys(updatedStatus).forEach(user => {
-            updatedStatus[user] = {
-                ...updatedStatus[user],
-                [newTagName.value]: false
-            }
-        })
+        
+        // Initialize user's tags object if it doesn't exist
+        if (!updatedStatus[username.value]) {
+            updatedStatus[username.value] = {}
+        }
+        
+        // Add the new tag only to the current user
+        updatedStatus[username.value] = {
+            ...updatedStatus[username.value],
+            [newTagName.value]: false
+        }
         
         await updateUserStatus(updatedStatus)
         
+        // Update tags list if needed
         const currentTags = Object.keys(userStatus.value[username.value] || {})
         if (!currentTags.includes(newTagName.value)) {
             await updateTags([...currentTags, newTagName.value])

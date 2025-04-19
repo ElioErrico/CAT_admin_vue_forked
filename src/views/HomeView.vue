@@ -204,6 +204,10 @@ const statusError = ref<Error | null>(null)
 const username = ref('')
 const newTagName = ref('')
 const boxAddTag = ref<InstanceType<typeof ModalBox>>()
+// Add this line for the new prompt modal
+const boxPrompt = ref<InstanceType<typeof ModalBox>>()
+// Add this line for the selected tag name
+const selectedTagName = ref('')
 
 // Add this to get the store and jwtPayload
 const mainStore = useMainStore()
@@ -239,7 +243,12 @@ onMounted(() => {
 
 // Tags dell'utente corrente
 const currentUserTags = computed(() => {
-    return userStatus.value[username.value] || {}
+    // Now each tag is an object, but for UI compatibility, return a map of tagName -> status (boolean)
+    const tags = userStatus.value[username.value] || {}
+    // Map to { tagName: status }
+    return Object.fromEntries(
+        Object.entries(tags).map(([tag, obj]) => [tag, (obj as any).status])
+    )
 })
 
 // Carica lo stato dei tag
@@ -258,31 +267,44 @@ const loadUserStatus = async () => {
 // Aggiorna lo stato di un tag
 const updateTagStatus = async (tagName: string, newStatus: boolean) => {
     try {
-        // Create a copy of the current user's tags
-        const userTags = { ...userStatus.value[username.value] || {} }
+        // Create a copy of the current user's tags with proper typing
+        const userTags: Record<string, any> = { ...userStatus.value[username.value] || {} }
         
         // If setting a tag to true, set all other tags to false
         if (newStatus) {
-            // Set all tags to false first
             Object.keys(userTags).forEach(tag => {
-                userTags[tag] = false
-            })
+                // Create a new object for each tag with status false
+                // and preserve the prompt if it exists
+                const currentTag = userTags[tag];
+                const promptValue = typeof currentTag === 'object' && currentTag !== null 
+                    ? (currentTag.prompt || '') 
+                    : '';
+                
+                // Set all tags to false status
+                userTags[tag] = { status: false, prompt: promptValue };
+            });
         }
         
-        // Set the selected tag to the new status
-        userTags[tagName] = newStatus
+        // Get the current tag value and extract prompt if it exists
+        const currentTagValue = userTags[tagName];
+        const promptValue = typeof currentTagValue === 'object' && currentTagValue !== null 
+            ? (currentTagValue.prompt || '') 
+            : '';
+        
+        // Set the selected tag to the new status with the existing prompt
+        userTags[tagName] = { status: newStatus, prompt: promptValue };
         
         const updatedStatus = {
             ...userStatus.value,
             [username.value]: userTags
-        }
+        };
         
-        await updateUserStatus(updatedStatus)
-        userStatus.value = updatedStatus
+        await updateUserStatus(updatedStatus);
+        userStatus.value = updatedStatus;
     } catch (err) {
-        statusError.value = err as Error
+        statusError.value = err as Error;
         // Revert to previous state in case of error
-        userStatus.value = { ...userStatus.value }
+        userStatus.value = { ...userStatus.value };
     }
 }
 
@@ -331,10 +353,10 @@ const createNewTag = async () => {
             updatedStatus[username.value] = {}
         }
         
-        // Add the new tag only to the current user
+        // Add the new tag only to the current user, with default prompt as empty string
         updatedStatus[username.value] = {
             ...updatedStatus[username.value],
-            [newTagName.value]: false
+            [newTagName.value]: { status: false, prompt: '' }
         }
         
         await updateUserStatus(updatedStatus)
@@ -354,6 +376,58 @@ const createNewTag = async () => {
     }
 }
 
+// Add this line for the tag prompt content
+const tagPromptContent = ref('')
+
+// Update this to also set the prompt content when opening the modal
+const openPromptModal = (tagName: string) => {
+    selectedTagName.value = tagName
+    
+    // Get the current tag's prompt value
+    const userTags = userStatus.value[username.value] || {}
+    const tagData = userTags[tagName]
+    
+    // Set the prompt content if it exists
+    if (typeof tagData === 'object' && tagData !== null) {
+        tagPromptContent.value = tagData.prompt || ''
+    } else {
+        tagPromptContent.value = ''
+    }
+    
+    boxPrompt.value?.toggleModal()
+}
+
+// Add this function to save the prompt
+const saveTagPrompt = async () => {
+    try {
+        // Create a copy of the current user's tags
+        const userTags: Record<string, any> = { ...userStatus.value[username.value] || {} }
+        
+        // Get the current tag data
+        const tagData = userTags[selectedTagName.value] || { status: false }
+        
+        // Update the prompt while preserving the status
+        userTags[selectedTagName.value] = { 
+            status: typeof tagData === 'object' ? tagData.status : false,
+            prompt: tagPromptContent.value 
+        }
+        
+        // Update the user status
+        const updatedStatus = {
+            ...userStatus.value,
+            [username.value]: userTags
+        }
+        
+        await updateUserStatus(updatedStatus)
+        userStatus.value = updatedStatus
+        
+        // Optional: Show success message or notification
+        console.log(`Prompt for tag "${selectedTagName.value}" saved successfully`)
+    } catch (err) {
+        statusError.value = err as Error
+        console.error(`Error saving prompt: ${err}`)
+    }
+}
 </script>
 
 <template>
@@ -515,6 +589,13 @@ const createNewTag = async () => {
 						            </template>
 						        </span>
 						        <span class="grow truncate max-w-[25rem]">{{ tagName }}</span>
+						        <!-- NEW HEROICON SVG BUTTON -->
+						        <span class="rounded-lg p-1 text-primary cursor-pointer hover:bg-base-200"
+						              @click.stop="openPromptModal(String(tagName))">
+						            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
+						              <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" />
+						            </svg>
+						        </span>
 						        <span 
 						            class="rounded-lg p-1 text-error cursor-pointer hover:bg-base-200"
 						            @click.stop="deleteTagMemory(String(tagName))">
@@ -537,6 +618,7 @@ const createNewTag = async () => {
 					</ul>
 				</div>
 				<!-- FINE DROP DOWN AGGIUNTIVO -->
+
 
 
 
@@ -592,6 +674,31 @@ const createNewTag = async () => {
 					<button class="btn btn-primary btn-sm" @click="createNewTag">Crea Tag</button>
 				</div>
 			</ModalBox>
-		</Teleport>
+
+    <!-- NEW MODAL FOR PROMPT -->
+	<ModalBox ref="boxPrompt">
+		<div 
+			class="flex flex-col items-center justify-between gap-1 text-neutral"
+			style="width: 100%; max-width: 450px; min-width: 400px;"
+		>
+			<h3 class="text-2xl font-bold mb-4 w-full text-center">{{ selectedTagName }}</h3>
+			<div v-if="selectedTagName" class="w-full flex flex-col gap-4">
+				<div class="form-control w-full">
+					<label class="label mb-2">
+						<span class="label-text text-lg">System Prompt...</span>
+					</label>
+					<textarea 
+						v-model="tagPromptContent" 
+						class="textarea textarea-bordered min-h-[200px] h-[30vh] max-h-[50vh] w-full text-base"
+						style="resize: both; max-width: 450px; min-width: 400px;"
+						placeholder="Inserisci il prompt per questo tag..."></textarea>
+				</div>
+				<div class="flex justify-center mt-2">
+					<button class="btn btn-primary px-8" @click="saveTagPrompt">Salva Prompt</button>
+				</div>
+			</div>
+		</div>
+	</ModalBox>
+</Teleport>
 	</div>
 </template>

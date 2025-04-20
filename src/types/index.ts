@@ -1,5 +1,8 @@
 export interface UserStatus {
-    [key: string]: {
-        [key: string]: boolean
+    [username: string]: {
+        [tagName: string]: {
+            status: boolean
+            prompt: string
+        }
     }
 }

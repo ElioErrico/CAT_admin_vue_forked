@@ -76,12 +76,19 @@ Build the app for production
 
 #### Start the app
 
-
-#### Per lanciare una nuova release senza fare il rebuild 
-docker exec -it NOME_O_ID_CONTAINER bash -c "cd /admin && curl -sL https://github.com/ElioErrico/CAT_admin_vue_forked/releases/download/v2.0.3/release.zip | jar -xv"
-
 Runs the build and serves the built app on port `3000` (default)
 
 ```bash
   pnpm run preview
+```
+
+
+## Per lanciare una nuova release senza fare il rebuild 
+```bash
+docker exec -it NOME_O_ID_CONTAINER bash -c "cd /admin && curl -sL https://github.com/ElioErrico/CAT_admin_vue_forked/releases/download/v2.0.3/release.zip | jar -xv"
+```
+
+## Per  fare il rebuild
+```bash
+docker compose up -d --build cheshire-cat-core
 ```

@@ -460,6 +460,7 @@ const saveTagPrompt = async () => {
 				:when="msg.when"
 				:file="msg.sender === 'user' ? msg.file : undefined"
 				:why="msg.sender === 'bot' ? msg.why : undefined"
+				class="overflow-x-auto overflow-y-hidden"
 				@regenerate="regenerateResponse(msg.id)" />
 			<p v-if="messagesState.error" class="w-fit rounded-md bg-error p-4 font-semibold text-base-100">
 				{{ messagesState.error }}

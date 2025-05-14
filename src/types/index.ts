@@ -3,6 +3,11 @@ export interface UserStatus {
         [tagName: string]: {
             status: boolean
             prompt: string
+            prompt_list: {
+                prompt_title: string
+                prompt_content: string
+            }[]
+            selected_prompt: string
         }
     }
 }

@@ -21,6 +21,7 @@ declare module 'vue' {
     HeroiconsBars3Solid: typeof import('~icons/heroicons/bars3-solid')['default']
     HeroiconsBoltSolid: typeof import('~icons/heroicons/bolt-solid')['default']
     HeroiconsCheckCircle20Solid: typeof import('~icons/heroicons/check-circle20-solid')['default']
+    HeroiconsCheckCircleSolid: typeof import('~icons/heroicons/check-circle-solid')['default']
     HeroiconsChevronUpDown20Solid: typeof import('~icons/heroicons/chevron-up-down20-solid')['default']
     HeroiconsClipboard: typeof import('~icons/heroicons/clipboard')['default']
     HeroiconsClipboardDocumentListSolid: typeof import('~icons/heroicons/clipboard-document-list-solid')['default']

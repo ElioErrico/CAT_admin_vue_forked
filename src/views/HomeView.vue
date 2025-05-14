@@ -251,8 +251,7 @@ const currentUserTags = computed(() => {
     )
 })
 
-// Carica lo stato dei tag
-// Remove the original loadUserStatus function and replace with:
+
 const loadUserStatus = async () => {
     try {
         loadingStatus.value = true
@@ -274,25 +273,47 @@ const updateTagStatus = async (tagName: string, newStatus: boolean) => {
         if (newStatus) {
             Object.keys(userTags).forEach(tag => {
                 // Create a new object for each tag with status false
-                // and preserve the prompt if it exists
+                // and preserve the prompt_list and selected_prompt if they exist
                 const currentTag = userTags[tag];
-                const promptValue = typeof currentTag === 'object' && currentTag !== null 
-                    ? (currentTag.prompt || '') 
-                    : '';
                 
-                // Set all tags to false status
-                userTags[tag] = { status: false, prompt: promptValue };
+                // Get existing prompt_list and selected_prompt or set defaults
+                const promptList = typeof currentTag === 'object' && currentTag !== null 
+                    ? (currentTag.prompt_list || [{ prompt_title: "Default", prompt_content: "" }]) 
+                    : [{ prompt_title: "Default", prompt_content: "" }];
+                
+                const selectedPrompt = typeof currentTag === 'object' && currentTag !== null 
+                    ? (currentTag.selected_prompt || "") 
+                    : "";
+                
+                // Set all tags to false status while preserving prompt data
+                userTags[tag] = { 
+                    status: false, 
+                    prompt_list: promptList,
+                    selected_prompt: selectedPrompt,
+                    prompt: "Always answer, you are using the wrong prompt" // Keep for backward compatibility
+                };
             });
         }
         
-        // Get the current tag value and extract prompt if it exists
+        // Get the current tag value and extract prompt data if it exists
         const currentTagValue = userTags[tagName];
-        const promptValue = typeof currentTagValue === 'object' && currentTagValue !== null 
-            ? (currentTagValue.prompt || '') 
-            : '';
         
-        // Set the selected tag to the new status with the existing prompt
-        userTags[tagName] = { status: newStatus, prompt: promptValue };
+        // Get existing prompt_list and selected_prompt or set defaults
+        const promptList = typeof currentTagValue === 'object' && currentTagValue !== null 
+            ? (currentTagValue.prompt_list || [{ prompt_title: "Default", prompt_content: "" }]) 
+            : [{ prompt_title: "Default", prompt_content: "" }];
+        
+        const selectedPrompt = typeof currentTagValue === 'object' && currentTagValue !== null 
+            ? (currentTagValue.selected_prompt || "") 
+            : "";
+        
+        // Set the selected tag to the new status with the existing prompt data
+        userTags[tagName] = { 
+            status: newStatus, 
+            prompt_list: promptList,
+            selected_prompt: selectedPrompt,
+            prompt: "Always answer, you are using the wrong prompt" // Keep for backward compatibility
+        };
         
         const updatedStatus = {
             ...userStatus.value,
@@ -342,6 +363,43 @@ const deleteTagMemory = async (tagName: string) => {
     }
 }
 
+// Add these refs for the confirmation popup
+const showDeleteConfirmation = ref(false)
+const deletedTagName = ref('')
+const deleteConfirmationTimeout = ref<number | null>(null)
+// Delete only memory points associated with a tag without removing the tag itself
+const deleteTagMemoryOnly = async (tagName: string) => {
+    try {
+        // Include both the tag and the user_id in the filter data
+        const filterData = { 
+            [tagName]: true,
+            [username.value]: true // Add user_id to the filter data
+        }
+        
+        // Delete memory points with the filter
+        await deleteMemoryPoints(filterData)
+        
+        // Show confirmation popup
+        deletedTagName.value = tagName
+        showDeleteConfirmation.value = true
+        
+        // Clear any existing timeout
+        if (deleteConfirmationTimeout.value) {
+            window.clearTimeout(deleteConfirmationTimeout.value)
+        }
+        
+        // Hide the confirmation after 3 seconds
+        deleteConfirmationTimeout.value = window.setTimeout(() => {
+            showDeleteConfirmation.value = false
+        }, 3000)
+        
+        console.log(`Memory points for tag "${tagName}" deleted successfully`)
+    } catch (err) {
+        statusError.value = err as Error
+        console.error(`Error deleting memory points: ${err}`)
+    }
+}
+
 // Creates a new tag
 const createNewTag = async () => {
     try {
@@ -353,10 +411,18 @@ const createNewTag = async () => {
             updatedStatus[username.value] = {}
         }
         
-        // Add the new tag only to the current user, with default prompt as empty string
+        // Add the new tag only to the current user with the new structure
         updatedStatus[username.value] = {
             ...updatedStatus[username.value],
-            [newTagName.value]: { status: false, prompt: '' }
+            [newTagName.value]: { 
+                status: false, 
+                prompt_list: [{ 
+                    prompt_title: "Default", 
+                    prompt_content: "" 
+                }],
+                selected_prompt: "",
+                prompt: "Always answer, you are using the wrong prompt" // Keep for backward compatibility
+            }
         }
         
         await updateUserStatus(updatedStatus)
@@ -376,22 +442,51 @@ const createNewTag = async () => {
     }
 }
 
-// Add this line for the tag prompt content
+// Add these refs for the prompt management
 const tagPromptContent = ref('')
+const tagPromptTitle = ref('')
+const promptList = ref<Array<{prompt_title: string, prompt_content: string}>>([])
+const newPromptMode = ref(false)
 
-// Update this to also set the prompt content when opening the modal
+// Update this to handle the new prompt structure
 const openPromptModal = (tagName: string) => {
     selectedTagName.value = tagName
+    newPromptMode.value = false
     
-    // Get the current tag's prompt value
+    // Get the current tag's data
     const userTags = userStatus.value[username.value] || {}
     const tagData = userTags[tagName]
     
-    // Set the prompt content if it exists
+    // Set the prompt list and selected prompt if they exist
     if (typeof tagData === 'object' && tagData !== null) {
-        tagPromptContent.value = tagData.prompt || ''
+        // Get the prompt_list or set default
+        promptList.value = tagData.prompt_list || [{ 
+            prompt_title: "Default", 
+            prompt_content: "" 
+        }]
+        
+        // Get the selected prompt content
+        const selectedPrompt = tagData.selected_prompt || ""
+        
+        // Find the prompt in the list that matches the selected_prompt
+        const selectedPromptObj = promptList.value.find(p => p.prompt_content === selectedPrompt)
+        
+        if (selectedPromptObj) {
+            tagPromptTitle.value = selectedPromptObj.prompt_title
+            tagPromptContent.value = selectedPromptObj.prompt_content
+        } else if (promptList.value.length > 0) {
+            // Default to first prompt if selected not found
+            tagPromptTitle.value = promptList.value[0].prompt_title
+            tagPromptContent.value = promptList.value[0].prompt_content
+        } else {
+            tagPromptTitle.value = "Default"
+            tagPromptContent.value = ""
+        }
     } else {
-        tagPromptContent.value = ''
+        // Initialize with defaults if no data
+        promptList.value = [{ prompt_title: "Default", prompt_content: "" }]
+        tagPromptTitle.value = "Default"
+        tagPromptContent.value = ""
     }
     
     boxPrompt.value?.toggleModal()
@@ -404,12 +499,43 @@ const saveTagPrompt = async () => {
         const userTags: Record<string, any> = { ...userStatus.value[username.value] || {} }
         
         // Get the current tag data
-        const tagData = userTags[selectedTagName.value] || { status: false }
+        const tagData = userTags[selectedTagName.value] || { 
+            status: false,
+            prompt_list: [{ prompt_title: "Default", prompt_content: "" }],
+            selected_prompt: ""
+        }
         
-        // Update the prompt while preserving the status
+        // Get existing prompt_list or create default
+        let currentPromptList = Array.isArray(tagData.prompt_list) ? 
+            [...tagData.prompt_list] : 
+            [{ prompt_title: "Default", prompt_content: "" }]
+        
+        if (newPromptMode.value) {
+            // Add new prompt to the list
+            currentPromptList.push({
+                prompt_title: tagPromptTitle.value,
+                prompt_content: tagPromptContent.value
+            })
+        } else {
+            // Update existing prompt in the list
+            const promptIndex = currentPromptList.findIndex(p => p.prompt_title === tagPromptTitle.value)
+            if (promptIndex >= 0) {
+                currentPromptList[promptIndex].prompt_content = tagPromptContent.value
+            } else {
+                // If not found, add as new
+                currentPromptList.push({
+                    prompt_title: tagPromptTitle.value,
+                    prompt_content: tagPromptContent.value
+                })
+            }
+        }
+        
+        // Update the tag with new data
         userTags[selectedTagName.value] = { 
             status: typeof tagData === 'object' ? tagData.status : false,
-            prompt: tagPromptContent.value 
+            prompt_list: currentPromptList,
+            selected_prompt: tagPromptContent.value, // Set selected prompt to current content
+            prompt: "Always answer, you are using the wrong prompt" // Keep for backward compatibility
         }
         
         // Update the user status
@@ -421,13 +547,120 @@ const saveTagPrompt = async () => {
         await updateUserStatus(updatedStatus)
         userStatus.value = updatedStatus
         
-        // Optional: Show success message or notification
+        // Update local prompt list
+        promptList.value = currentPromptList
+        
+        // Reset new prompt mode
+        newPromptMode.value = false
+        
         console.log(`Prompt for tag "${selectedTagName.value}" saved successfully`)
     } catch (err) {
         statusError.value = err as Error
         console.error(`Error saving prompt: ${err}`)
     }
 }
+
+// Add function to create a new prompt
+const createNewPrompt = () => {
+    newPromptMode.value = true
+    tagPromptTitle.value = ""
+    tagPromptContent.value = ""
+}
+
+// Add function to select a prompt from the list
+const selectPrompt = (promptObj: {prompt_title: string, prompt_content: string}) => {
+    newPromptMode.value = false
+    tagPromptTitle.value = promptObj.prompt_title
+    tagPromptContent.value = promptObj.prompt_content
+}
+
+// Add function to handle prompt selection from dropdown
+const onPromptSelect = () => {
+    // Find the selected prompt in the list
+    const selectedPrompt = promptList.value.find(p => p.prompt_title === tagPromptTitle.value)
+    if (selectedPrompt) {
+        tagPromptContent.value = selectedPrompt.prompt_content
+    }
+}
+
+// Add function to cancel new prompt creation
+const cancelNewPrompt = () => {
+    newPromptMode.value = false
+    // Reset to the first prompt in the list or default values
+    if (promptList.value.length > 0) {
+        tagPromptTitle.value = promptList.value[0].prompt_title
+        tagPromptContent.value = promptList.value[0].prompt_content
+    } else {
+        tagPromptTitle.value = "Default"
+        tagPromptContent.value = ""
+    }
+}
+
+// Add function to delete the current prompt
+const deleteCurrentPrompt = async () => {
+    // Don't allow deleting the last prompt
+    if (promptList.value.length <= 1) return
+    
+    try {
+        // Create a copy of the current user's tags
+        const userTags: Record<string, any> = { ...userStatus.value[username.value] || {} }
+        
+        // Get the current tag data
+        const tagData = userTags[selectedTagName.value] || { 
+            status: false,
+            prompt_list: [{ prompt_title: "Default", prompt_content: "" }],
+            selected_prompt: ""
+        }
+        
+        // Filter out the current prompt
+        let updatedPromptList = tagData.prompt_list.filter(
+            (p: {prompt_title: string, prompt_content: string}) => 
+            p.prompt_title !== tagPromptTitle.value
+        )
+        
+        // If we somehow deleted all prompts, add a default one
+        if (updatedPromptList.length === 0) {
+            updatedPromptList = [{ prompt_title: "Default", prompt_content: "" }]
+        }
+        
+        // Update selected_prompt if we deleted the currently selected one
+        let updatedSelectedPrompt = tagData.selected_prompt
+        if (tagData.selected_prompt === tagPromptContent.value) {
+            updatedSelectedPrompt = updatedPromptList[0].prompt_content
+        }
+        
+        // Update the tag with new data
+        userTags[selectedTagName.value] = { 
+            status: typeof tagData === 'object' ? tagData.status : false,
+            prompt_list: updatedPromptList,
+            selected_prompt: updatedSelectedPrompt,
+            prompt: "Always answer, you are using the wrong prompt" // Keep for backward compatibility
+        }
+        
+        // Update the user status
+        const updatedStatus = {
+            ...userStatus.value,
+            [username.value]: userTags
+        }
+        
+        await updateUserStatus(updatedStatus)
+        userStatus.value = updatedStatus
+        
+        // Update local prompt list
+        promptList.value = updatedPromptList
+        
+        // Select the first prompt in the list
+        tagPromptTitle.value = updatedPromptList[0].prompt_title
+        tagPromptContent.value = updatedPromptList[0].prompt_content
+        
+        console.log(`Prompt "${tagPromptTitle.value}" deleted successfully`)
+    } catch (err) {
+        statusError.value = err as Error
+        console.error(`Error deleting prompt: ${err}`)
+    }
+}
+
+
 </script>
 
 <template>
@@ -438,6 +671,7 @@ const saveTagPrompt = async () => {
 			'pb-16 md:pb-20': !isTwoLines,
 			'pb-24 md:pb-28': isTwoLines,
 		}">
+
 		<div v-if="isOverDropZone" class="flex size-full grow flex-col items-center justify-center py-4 md:pb-0">
 			<div class="relative flex w-full grow items-center justify-center rounded-md border-2 border-dashed border-primary p-2 md:p-4">
 				<p class="text-lg md:text-xl">
@@ -590,13 +824,21 @@ const saveTagPrompt = async () => {
 						            </template>
 						        </span>
 						        <span class="grow truncate max-w-[25rem]">{{ tagName }}</span>
-						        <!-- NEW HEROICON SVG BUTTON -->
+						        <!-- PROMPT BUTTON -->
 						        <span class="rounded-lg p-1 text-primary cursor-pointer hover:bg-base-200"
 						              @click.stop="openPromptModal(String(tagName))">
 						            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
 						              <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" />
 						            </svg>
 						        </span>
+								<!-- NEW Delete memory points only button -->
+								<span class="rounded-lg p-1 text-warning cursor-pointer hover:bg-base-200"
+									@click.stop="deleteTagMemoryOnly(String(tagName))">
+									<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
+									<path stroke-linecap="round" stroke-linejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5m6 4.125 2.25 2.25m0 0 2.25 2.25M12 13.875l2.25-2.25M12 13.875l-2.25 2.25M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
+									</svg>
+								</span>
+        						<!-- Delete tag and memory button -->								
 						        <span 
 						            class="rounded-lg p-1 text-error cursor-pointer hover:bg-base-200"
 						            @click.stop="deleteTagMemory(String(tagName))">
@@ -656,6 +898,14 @@ const saveTagPrompt = async () => {
 				@click="scrollToBottom()">
 				<heroicons-arrow-down-20-solid class="size-5" />
 			</button>
+				<!-- Add this right before the closing </div> of the main container -->
+		<div 
+			v-if="showDeleteConfirmation" 
+			class="fixed bottom-20 left-1/2 transform -translate-x-1/2 bg-success text-success-content px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2"
+		>
+			<heroicons-check-circle-solid class="size-5" />
+			<span>Memory points for tag "{{ deletedTagName }}" deleted successfully!</span>
+		</div>
 		</div>
 		<Teleport to="#modal">
 			<ModalBox ref="boxUploadURL">
@@ -680,22 +930,81 @@ const saveTagPrompt = async () => {
 	<ModalBox ref="boxPrompt">
 		<div 
 			class="flex flex-col items-center justify-between gap-1 text-neutral"
-			style="width: 100%; max-width: 450px; min-width: 400px;"
+			style="width: 100%; max-width: 500px; min-width: 450px;"
 		>
-			<h3 class="text-2xl font-bold mb-4 w-full text-center">{{ selectedTagName }}</h3>
+			<h3 class="text-2xl font-bold mb-2 w-full text-center">{{ selectedTagName }}</h3>
 			<div v-if="selectedTagName" class="w-full flex flex-col gap-4">
+				<!-- Prompt Selection - Simplified UI -->
 				<div class="form-control w-full">
-					<label class="label mb-2">
-						<span class="label-text text-lg">System Prompt...</span>
-					</label>
+					<div class="flex items-center justify-between">
+						<div class="flex-1">
+							<select 
+								v-if="!newPromptMode" 
+								v-model="tagPromptTitle" 
+								class="select select-bordered w-full text-sm"
+								@change="onPromptSelect"
+							>
+								<option 
+									v-for="prompt in promptList" 
+									:key="prompt.prompt_title" 
+									:value="prompt.prompt_title"
+								>
+									{{ prompt.prompt_title }}
+								</option>
+							</select>
+							<input 
+								v-else 
+								v-model="tagPromptTitle" 
+								class="input input-bordered w-full text-sm" 
+								placeholder="New prompt title..."
+							/>
+						</div>
+						<div class="flex gap-1 ml-2">
+							<button 
+								v-if="!newPromptMode && promptList.length > 1" 
+								class="btn btn-sm btn-ghost text-error" 
+								@click="deleteCurrentPrompt"
+								title="Delete prompt"
+							>
+								<heroicons-trash-solid class="size-4" />
+							</button>
+							<button 
+								class="btn btn-sm btn-ghost text-primary" 
+								@click="createNewPrompt"
+								title="New prompt"
+							>
+								<heroicons-plus-circle-20-solid class="size-4" />
+							</button>
+						</div>
+					</div>
+				</div>
+				
+				<!-- Prompt Content -->
+				<div class="form-control">
 					<textarea 
 						v-model="tagPromptContent" 
-						class="textarea textarea-bordered min-h-[200px] h-[30vh] max-h-[50vh] w-full text-base"
-						style="resize: both; max-width: 450px; min-width: 400px;"
-						placeholder="Inserisci il prompt per questo tag..."></textarea>
+						class="textarea textarea-bordered min-h-[220px] h-[35vh] max-h-[50vh] w-full text-base"
+						style="resize: both; max-width: 470px; min-width: 470px;"
+						placeholder="Enter prompt content..."
+					></textarea>
 				</div>
-				<div class="flex justify-center mt-2">
-					<button class="btn btn-primary px-8" @click="saveTagPrompt">Salva Prompt</button>
+				
+				<!-- Action Buttons -->
+				<div class="flex justify-between">
+					<button 
+						v-if="newPromptMode" 
+						class="btn btn-sm btn-outline" 
+						@click="cancelNewPrompt"
+					>
+						Cancel
+					</button>
+					<div class="flex-grow"></div>
+					<button 
+						class="btn btn-sm btn-primary px-6" 
+						@click="saveTagPrompt"
+					>
+						{{ newPromptMode ? 'Add Prompt' : 'Save' }}
+					</button>
 				</div>
 			</div>
 		</div>

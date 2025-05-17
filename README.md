@@ -81,3 +81,8 @@ Runs the build and serves the built app on port `3000` (default)
 ```bash
   pnpm run preview
 ```
+
+#### to rebuild new release.zip
+```bash
+sudo docker compose up -d --build cheshire-cat-core
+```

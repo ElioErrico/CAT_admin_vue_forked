@@ -445,9 +445,104 @@ const createNewTag = async () => {
 // Add these refs for the prompt management
 const tagPromptContent = ref('')
 const tagPromptTitle = ref('')
+const editablePromptTitle = ref('') // For editing the title
+const editingTitle = ref(false) // Track if we're editing the title
+const titleEditInput = ref<HTMLInputElement | null>(null) // Ref for the title edit input
 const promptList = ref<Array<{prompt_title: string, prompt_content: string}>>([])
 const newPromptMode = ref(false)
 
+// Function to start editing the title
+const startEditingTitle = () => {
+    editingTitle.value = true
+    editablePromptTitle.value = tagPromptTitle.value
+    // Focus the input after it's rendered
+    nextTick(() => {
+        titleEditInput.value?.focus()
+    })
+}
+
+// Function to cancel title editing
+const cancelTitleEdit = () => {
+    editingTitle.value = false
+    editablePromptTitle.value = tagPromptTitle.value
+}
+
+// Function to update the prompt title
+const updatePromptTitle = async () => {
+    // Don't update if title is empty or unchanged
+    if (!editablePromptTitle.value || editablePromptTitle.value === tagPromptTitle.value) {
+        editingTitle.value = false
+        // Reset to original if empty
+        if (!editablePromptTitle.value) {
+            editablePromptTitle.value = tagPromptTitle.value
+        }
+        return
+    }
+    
+    try {
+        // Create a copy of the current user's tags
+        const userTags: Record<string, any> = { ...userStatus.value[username.value] || {} }
+        
+        // Get the current tag data
+        const tagData = userTags[selectedTagName.value] || { 
+            status: false,
+            prompt_list: [{ prompt_title: "Default", prompt_content: "" }],
+            selected_prompt: ""
+        }
+        
+        // Get existing prompt_list
+        let currentPromptList = Array.isArray(tagData.prompt_list) ? 
+            [...tagData.prompt_list] : 
+            [{ prompt_title: "Default", prompt_content: "" }]
+        
+        // Find the prompt to update
+        const promptIndex = currentPromptList.findIndex(p => p.prompt_title === tagPromptTitle.value)
+        if (promptIndex >= 0) {
+            // Check if the new title already exists
+            const titleExists = currentPromptList.some(p => p.prompt_title === editablePromptTitle.value)
+            if (titleExists) {
+                // Reset to original if duplicate
+                editablePromptTitle.value = tagPromptTitle.value
+                console.error(`A prompt with title "${editablePromptTitle.value}" already exists`)
+                return
+            }
+            
+            // Update the title
+            currentPromptList[promptIndex].prompt_title = editablePromptTitle.value
+            
+            // Update the tag with new data
+            userTags[selectedTagName.value] = { 
+                status: typeof tagData === 'object' ? tagData.status : false,
+                prompt_list: currentPromptList,
+                selected_prompt: tagData.selected_prompt,
+                prompt: "Always answer, you are using the wrong prompt" // Keep for backward compatibility
+            }
+            
+            // Update the user status
+            const updatedStatus = {
+                ...userStatus.value,
+                [username.value]: userTags
+            }
+            
+            await updateUserStatus(updatedStatus)
+            userStatus.value = updatedStatus
+            
+            // Update local prompt list and selected title
+            promptList.value = currentPromptList
+            tagPromptTitle.value = editablePromptTitle.value
+            
+            console.log(`Prompt title updated from "${tagPromptTitle.value}" to "${editablePromptTitle.value}"`)
+        }
+    } catch (err) {
+        // Reset to original on error
+        editablePromptTitle.value = tagPromptTitle.value
+        statusError.value = err as Error
+        console.error(`Error updating prompt title: ${err}`)
+    }
+    
+    // Exit editing mode
+    editingTitle.value = false
+}
 // Update this to handle the new prompt structure
 const openPromptModal = (tagName: string) => {
     selectedTagName.value = tagName
@@ -824,16 +919,18 @@ const deleteCurrentPrompt = async () => {
 						            </template>
 						        </span>
 						        <span class="grow truncate max-w-[25rem]">{{ tagName }}</span>
-						        <!-- PROMPT BUTTON -->
-						        <span class="rounded-lg p-1 text-primary cursor-pointer hover:bg-base-200"
-						              @click.stop="openPromptModal(String(tagName))">
+								<!-- PROMPT BUTTON -->
+								<span class="rounded-lg p-1 text-primary cursor-pointer hover:bg-base-200"
+						              @click.stop="openPromptModal(String(tagName))"
+                                      title="Edit prompts">
 						            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
 						              <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" />
 						            </svg>
 						        </span>
 								<!-- NEW Delete memory points only button -->
 								<span class="rounded-lg p-1 text-warning cursor-pointer hover:bg-base-200"
-									@click.stop="deleteTagMemoryOnly(String(tagName))">
+									@click.stop="deleteTagMemoryOnly(String(tagName))"
+                                    title="Delete content">
 									<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
 									<path stroke-linecap="round" stroke-linejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5m6 4.125 2.25 2.25m0 0 2.25 2.25M12 13.875l2.25-2.25M12 13.875l-2.25 2.25M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
 									</svg>
@@ -841,7 +938,8 @@ const deleteCurrentPrompt = async () => {
         						<!-- Delete tag and memory button -->								
 						        <span 
 						            class="rounded-lg p-1 text-error cursor-pointer hover:bg-base-200"
-						            @click.stop="deleteTagMemory(String(tagName))">
+						            @click.stop="deleteTagMemory(String(tagName))"
+                                    title="Delete content and tag">
 						            <heroicons-trash-solid class="size-4 shrink-0" />
 						        </span>
 						    </button>
@@ -926,23 +1024,33 @@ const deleteCurrentPrompt = async () => {
 				</div>
 			</ModalBox>
 
-    <!-- NEW MODAL FOR PROMPT -->
-	<ModalBox ref="boxPrompt">
+		<!-- NEW MODAL FOR PROMPT -->
+		<ModalBox ref="boxPrompt">
 		<div 
 			class="flex flex-col items-center justify-between gap-1 text-neutral"
 			style="width: 100%; max-width: 500px; min-width: 450px;"
 		>
+			<!-- Add exit button in the top-right corner -->
+			<button 
+				class="btn btn-circle btn-error absolute right-[725px] min-h-0 h-4 w-4"
+				@click="boxPrompt?.toggleModal()"
+				title="Close"
+			>
+				<heroicons-x-mark-20-solid class="size-3" />
+			</button>
+
 			<h3 class="text-2xl font-bold mb-2 w-full text-center">{{ selectedTagName }}</h3>
 			<div v-if="selectedTagName" class="w-full flex flex-col gap-4">
-				<!-- Prompt Selection - Simplified UI -->
+				<!-- Prompt Selection - Simplified UI with inline editing -->
 				<div class="form-control w-full">
-					<div class="flex items-center justify-between">
+					<div class="flex items-center justify-between h-8">
 						<div class="flex-1">
 							<select 
-								v-if="!newPromptMode" 
+								v-if="!newPromptMode && !editingTitle" 
 								v-model="tagPromptTitle" 
-								class="select select-bordered w-full text-sm"
+								class="select select-bordered select-sm w-full text-sm h-9 min-h-0"
 								@change="onPromptSelect"
+								@dblclick="startEditingTitle"
 							>
 								<option 
 									v-for="prompt in promptList" 
@@ -953,23 +1061,41 @@ const deleteCurrentPrompt = async () => {
 								</option>
 							</select>
 							<input 
+								v-else-if="!newPromptMode && editingTitle"
+								v-model="editablePromptTitle" 
+								class="input input-bordered input-sm w-full text-sm h-8"
+								placeholder="Edit prompt title..."
+								@blur="updatePromptTitle"
+								@keydown.enter="updatePromptTitle"
+								@keydown.esc="cancelTitleEdit"
+								ref="titleEditInput"
+							/>
+							<input 
 								v-else 
 								v-model="tagPromptTitle" 
-								class="input input-bordered w-full text-sm" 
+								class="input input-bordered input-sm w-full text-sm h-8" 
 								placeholder="New prompt title..."
 							/>
 						</div>
 						<div class="flex gap-1 ml-2">
 							<button 
-								v-if="!newPromptMode && promptList.length > 1" 
-								class="btn btn-sm btn-ghost text-error" 
+								v-if="!newPromptMode && !editingTitle && promptList.length > 1" 
+								class="btn btn-xs btn-ghost text-error p-1" 
 								@click="deleteCurrentPrompt"
 								title="Delete prompt"
 							>
 								<heroicons-trash-solid class="size-4" />
 							</button>
 							<button 
-								class="btn btn-sm btn-ghost text-primary" 
+								v-if="!newPromptMode && !editingTitle"
+								class="btn btn-xs btn-ghost text-warning p-1" 
+								@click="startEditingTitle"
+								title="Edit title"
+							>
+								<heroicons-pencil-square-solid class="size-4" />
+							</button>
+							<button 
+								class="btn btn-xs btn-ghost text-primary p-1" 
 								@click="createNewPrompt"
 								title="New prompt"
 							>
@@ -983,8 +1109,8 @@ const deleteCurrentPrompt = async () => {
 				<div class="form-control">
 					<textarea 
 						v-model="tagPromptContent" 
-						class="textarea textarea-bordered min-h-[220px] h-[35vh] max-h-[50vh] w-full text-base"
-						style="resize: both; max-width: 470px; min-width: 470px;"
+						class="textarea textarea-bordered min-h-[220px] h-[35vh] max-h-[50vh] w-full text-base overflow-y-auto"
+						style="resize: both; max-width: 470px; min-width: 470px; scrollbar-width: thin;"
 						placeholder="Enter prompt content..."
 					></textarea>
 				</div>

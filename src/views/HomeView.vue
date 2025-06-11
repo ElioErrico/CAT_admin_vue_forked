@@ -262,69 +262,56 @@ const loadUserStatus = async () => {
         loadingStatus.value = false
     }
 }
-
 // Aggiorna lo stato di un tag
 const updateTagStatus = async (tagName: string, newStatus: boolean) => {
     try {
-        // Create a copy of the current user's tags with proper typing
-        const userTags: Record<string, any> = { ...userStatus.value[username.value] || {} }
-        
+        // Fetch the latest user status before updating
+        const latestStatus = await fetchUserStatus();
+        const userTags: Record<string, any> = { ...latestStatus[username.value] || {} };
+
         // If setting a tag to true, set all other tags to false
         if (newStatus) {
             Object.keys(userTags).forEach(tag => {
-                // Create a new object for each tag with status false
-                // and preserve the prompt_list and selected_prompt if they exist
                 const currentTag = userTags[tag];
-                
-                // Get existing prompt_list and selected_prompt or set defaults
                 const promptList = typeof currentTag === 'object' && currentTag !== null 
                     ? (currentTag.prompt_list || [{ prompt_title: "Default", prompt_content: "" }]) 
                     : [{ prompt_title: "Default", prompt_content: "" }];
-                
                 const selectedPrompt = typeof currentTag === 'object' && currentTag !== null 
                     ? (currentTag.selected_prompt || "") 
                     : "";
-                
-                // Set all tags to false status while preserving prompt data
                 userTags[tag] = { 
                     status: false, 
                     prompt_list: promptList,
                     selected_prompt: selectedPrompt,
-                    prompt: "Always answer, you are using the wrong prompt" // Keep for backward compatibility
+                    prompt: "Always answer, you are using the wrong prompt"
                 };
             });
         }
-        
-        // Get the current tag value and extract prompt data if it exists
+
         const currentTagValue = userTags[tagName];
-        
-        // Get existing prompt_list and selected_prompt or set defaults
         const promptList = typeof currentTagValue === 'object' && currentTagValue !== null 
             ? (currentTagValue.prompt_list || [{ prompt_title: "Default", prompt_content: "" }]) 
             : [{ prompt_title: "Default", prompt_content: "" }];
-        
         const selectedPrompt = typeof currentTagValue === 'object' && currentTagValue !== null 
             ? (currentTagValue.selected_prompt || "") 
             : "";
-        
-        // Set the selected tag to the new status with the existing prompt data
+
         userTags[tagName] = { 
             status: newStatus, 
             prompt_list: promptList,
             selected_prompt: selectedPrompt,
-            prompt: "Always answer, you are using the wrong prompt" // Keep for backward compatibility
+            prompt: "Always answer, you are using the wrong prompt"
         };
-        
+
         const updatedStatus = {
-            ...userStatus.value,
+            ...latestStatus,
             [username.value]: userTags
         };
-        
+
         await updateUserStatus(updatedStatus);
         userStatus.value = updatedStatus;
     } catch (err) {
         statusError.value = err as Error;
-        // Revert to previous state in case of error
         userStatus.value = { ...userStatus.value };
     }
 }
@@ -332,29 +319,26 @@ const updateTagStatus = async (tagName: string, newStatus: boolean) => {
 // Elimina le memory points associate al tag
 const deleteTagMemory = async (tagName: string) => {
     try {
-        // Include both the tag and the user_id in the filter data
         const filterData = { 
             [tagName]: true,
-            [username.value]: true // Add user_id to the filter data
+            [username.value]: true
         }
-        
-        // 1. Delete memory points with the enhanced filter
         await deleteMemoryPoints(filterData)
-        
-        // 2. Remove tag only from current user
-        const updatedStatus = { ...userStatus.value }
+
+        // Fetch the latest user status before updating
+        const latestStatus = await fetchUserStatus();
+        const updatedStatus = { ...latestStatus };
         if (updatedStatus[username.value] && tagName in updatedStatus[username.value]) {
             const { [tagName]: _, ...userTags } = updatedStatus[username.value]
             updatedStatus[username.value] = userTags
         }
-        
+
         await updateUserStatus(updatedStatus)
-        
-        // 3. Update tags list
-        const currentTags = Object.keys(userStatus.value[username.value] || {})
+
+        const currentTags = Object.keys(updatedStatus[username.value] || {})
         const updatedTags = currentTags.filter(tag => tag !== tagName)
         await updateTags(updatedTags)
-        
+
         userStatus.value = updatedStatus
         console.log(`Tag "${tagName}" eliminato con successo`)
     } catch (err) {
@@ -403,15 +387,14 @@ const deleteTagMemoryOnly = async (tagName: string) => {
 // Creates a new tag
 const createNewTag = async () => {
     try {
-        // Create or update tag only for the current user
-        const updatedStatus = { ...userStatus.value }
-        
-        // Initialize user's tags object if it doesn't exist
+        // Fetch the latest user status before updating
+        const latestStatus = await fetchUserStatus();
+        const updatedStatus = { ...latestStatus }
+
         if (!updatedStatus[username.value]) {
             updatedStatus[username.value] = {}
         }
-        
-        // Add the new tag only to the current user with the new structure
+
         updatedStatus[username.value] = {
             ...updatedStatus[username.value],
             [newTagName.value]: { 
@@ -421,18 +404,17 @@ const createNewTag = async () => {
                     prompt_content: "" 
                 }],
                 selected_prompt: "",
-                prompt: "Always answer, you are using the wrong prompt" // Keep for backward compatibility
+                prompt: "Always answer, you are using the wrong prompt"
             }
         }
-        
+
         await updateUserStatus(updatedStatus)
-        
-        // Update tags list if needed
-        const currentTags = Object.keys(userStatus.value[username.value] || {})
+
+        const currentTags = Object.keys(updatedStatus[username.value] || {})
         if (!currentTags.includes(newTagName.value)) {
             await updateTags([...currentTags, newTagName.value])
         }
-        
+
         userStatus.value = updatedStatus
         newTagName.value = ''
         boxAddTag.value?.toggleModal()
@@ -469,78 +451,56 @@ const cancelTitleEdit = () => {
 
 // Function to update the prompt title
 const updatePromptTitle = async () => {
-    // Don't update if title is empty or unchanged
     if (!editablePromptTitle.value || editablePromptTitle.value === tagPromptTitle.value) {
         editingTitle.value = false
-        // Reset to original if empty
         if (!editablePromptTitle.value) {
             editablePromptTitle.value = tagPromptTitle.value
         }
         return
     }
-    
     try {
-        // Create a copy of the current user's tags
-        const userTags: Record<string, any> = { ...userStatus.value[username.value] || {} }
-        
-        // Get the current tag data
+        // Fetch the latest user status before updating
+        const latestStatus = await fetchUserStatus();
+        const userTags: Record<string, any> = { ...latestStatus[username.value] || {} }
         const tagData = userTags[selectedTagName.value] || { 
             status: false,
             prompt_list: [{ prompt_title: "Default", prompt_content: "" }],
             selected_prompt: ""
         }
-        
-        // Get existing prompt_list
         let currentPromptList = Array.isArray(tagData.prompt_list) ? 
             [...tagData.prompt_list] : 
             [{ prompt_title: "Default", prompt_content: "" }]
-        
-        // Find the prompt to update
         const promptIndex = currentPromptList.findIndex(p => p.prompt_title === tagPromptTitle.value)
         if (promptIndex >= 0) {
-            // Check if the new title already exists
             const titleExists = currentPromptList.some(p => p.prompt_title === editablePromptTitle.value)
             if (titleExists) {
-                // Reset to original if duplicate
                 editablePromptTitle.value = tagPromptTitle.value
                 console.error(`A prompt with title "${editablePromptTitle.value}" already exists`)
                 return
             }
-            
-            // Update the title
             currentPromptList[promptIndex].prompt_title = editablePromptTitle.value
-            
-            // Update the tag with new data
             userTags[selectedTagName.value] = { 
                 status: typeof tagData === 'object' ? tagData.status : false,
                 prompt_list: currentPromptList,
                 selected_prompt: tagData.selected_prompt,
-                prompt: "Always answer, you are using the wrong prompt" // Keep for backward compatibility
+                prompt: "Always answer, you are using the wrong prompt"
             }
-            
-            // Update the user status
             const updatedStatus = {
-                ...userStatus.value,
+                ...latestStatus,
                 [username.value]: userTags
             }
-            
             await updateUserStatus(updatedStatus)
             userStatus.value = updatedStatus
-            
-            // Update local prompt list and selected title
             promptList.value = currentPromptList
             tagPromptTitle.value = editablePromptTitle.value
-            
             console.log(`Prompt title updated from "${tagPromptTitle.value}" to "${editablePromptTitle.value}"`)
         }
     } catch (err) {
-        // Reset to original on error
         editablePromptTitle.value = tagPromptTitle.value
         statusError.value = err as Error
         console.error(`Error updating prompt title: ${err}`)
     }
-    
-    // Exit editing mode
+
     editingTitle.value = false
 }
 // Update this to handle the new prompt structure
@@ -590,21 +550,22 @@ const openPromptModal = (tagName: string) => {
 // Add this function to save the prompt
 const saveTagPrompt = async () => {
     try {
-        // Create a copy of the current user's tags
-        const userTags: Record<string, any> = { ...userStatus.value[username.value] || {} }
-        
+        // Fetch the latest user status before updating
+        const latestStatus = await fetchUserStatus();
+        const userTags: Record<string, any> = { ...latestStatus[username.value] || {} }
+
         // Get the current tag data
         const tagData = userTags[selectedTagName.value] || { 
             status: false,
             prompt_list: [{ prompt_title: "Default", prompt_content: "" }],
             selected_prompt: ""
         }
-        
+
         // Get existing prompt_list or create default
         let currentPromptList = Array.isArray(tagData.prompt_list) ? 
             [...tagData.prompt_list] : 
             [{ prompt_title: "Default", prompt_content: "" }]
-        
+
         if (newPromptMode.value) {
             // Add new prompt to the list
             currentPromptList.push({
@@ -624,30 +585,30 @@ const saveTagPrompt = async () => {
                 })
             }
         }
-        
+
         // Update the tag with new data
         userTags[selectedTagName.value] = { 
             status: typeof tagData === 'object' ? tagData.status : false,
             prompt_list: currentPromptList,
             selected_prompt: tagPromptContent.value, // Set selected prompt to current content
-            prompt: "Always answer, you are using the wrong prompt" // Keep for backward compatibility
+            prompt: "Always answer, you are using the wrong prompt"
         }
-        
+
         // Update the user status
         const updatedStatus = {
-            ...userStatus.value,
+            ...latestStatus,
             [username.value]: userTags
         }
-        
+
         await updateUserStatus(updatedStatus)
         userStatus.value = updatedStatus
-        
+
         // Update local prompt list
         promptList.value = currentPromptList
-        
+
         // Reset new prompt mode
         newPromptMode.value = false
-        
+
         console.log(`Prompt for tag "${selectedTagName.value}" saved successfully`)
     } catch (err) {
         statusError.value = err as Error
@@ -695,59 +656,60 @@ const cancelNewPrompt = () => {
 const deleteCurrentPrompt = async () => {
     // Don't allow deleting the last prompt
     if (promptList.value.length <= 1) return
-    
+
     try {
-        // Create a copy of the current user's tags
-        const userTags: Record<string, any> = { ...userStatus.value[username.value] || {} }
-        
+        // Fetch the latest user status before updating
+        const latestStatus = await fetchUserStatus();
+        const userTags: Record<string, any> = { ...latestStatus[username.value] || {} }
+
         // Get the current tag data
         const tagData = userTags[selectedTagName.value] || { 
             status: false,
             prompt_list: [{ prompt_title: "Default", prompt_content: "" }],
             selected_prompt: ""
         }
-        
+
         // Filter out the current prompt
         let updatedPromptList = tagData.prompt_list.filter(
             (p: {prompt_title: string, prompt_content: string}) => 
             p.prompt_title !== tagPromptTitle.value
         )
-        
+
         // If we somehow deleted all prompts, add a default one
         if (updatedPromptList.length === 0) {
             updatedPromptList = [{ prompt_title: "Default", prompt_content: "" }]
         }
-        
+
         // Update selected_prompt if we deleted the currently selected one
         let updatedSelectedPrompt = tagData.selected_prompt
         if (tagData.selected_prompt === tagPromptContent.value) {
             updatedSelectedPrompt = updatedPromptList[0].prompt_content
         }
-        
+
         // Update the tag with new data
         userTags[selectedTagName.value] = { 
             status: typeof tagData === 'object' ? tagData.status : false,
             prompt_list: updatedPromptList,
             selected_prompt: updatedSelectedPrompt,
-            prompt: "Always answer, you are using the wrong prompt" // Keep for backward compatibility
+            prompt: "Always answer, you are using the wrong prompt"
         }
-        
+
         // Update the user status
         const updatedStatus = {
-            ...userStatus.value,
+            ...latestStatus,
             [username.value]: userTags
         }
-        
+
         await updateUserStatus(updatedStatus)
         userStatus.value = updatedStatus
-        
+
         // Update local prompt list
         promptList.value = updatedPromptList
-        
+
         // Select the first prompt in the list
         tagPromptTitle.value = updatedPromptList[0].prompt_title
         tagPromptContent.value = updatedPromptList[0].prompt_content
-        
+
         console.log(`Prompt "${tagPromptTitle.value}" deleted successfully`)
     } catch (err) {
         statusError.value = err as Error

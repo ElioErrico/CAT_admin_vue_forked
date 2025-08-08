@@ -37,6 +37,7 @@ declare module 'vue' {
     HeroiconsMicrophoneSolid: typeof import('~icons/heroicons/microphone-solid')['default']
     HeroiconsMoonSolid: typeof import('~icons/heroicons/moon-solid')['default']
     HeroiconsPaperAirplaneSolid: typeof import('~icons/heroicons/paper-airplane-solid')['default']
+    HeroiconsPencilSquareSolid: typeof import('~icons/heroicons/pencil-square-solid')['default']
     HeroiconsPlusCircle20Solid: typeof import('~icons/heroicons/plus-circle20-solid')['default']
     HeroiconsSunSolid: typeof import('~icons/heroicons/sun-solid')['default']
     HeroiconsTrashSolid: typeof import('~icons/heroicons/trash-solid')['default']

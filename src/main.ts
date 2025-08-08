@@ -10,6 +10,7 @@ import router from '@/router'
 import 'unfonts.css'
 import 'animate.css'
 import '@assets/main.css'
+import './assets/css/katex.css';
 import { cloneDeep } from 'lodash'
 
 Object.keys(AllRules).forEach(rule => {

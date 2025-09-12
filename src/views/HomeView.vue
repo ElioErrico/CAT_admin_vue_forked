@@ -197,6 +197,7 @@ const {
   loadingStatus,
   statusError,
   currentUserTags,
+  currentUserDocuments,
   newTagName,
   showDeleteConfirmation,
   deletedTagName,
@@ -214,6 +215,7 @@ const {
 
   // actions
   updateTagStatus,
+  loadUserStatus,
   deleteTagMemoryOnly,
   deleteTagMemory,
   createNewTag,
@@ -357,16 +359,19 @@ const {
 
 				<!-- DROP DOWN AGGIUNTIVO -->
 				<TagDropdown
-					:input-disabled="inputDisabled"
-					:current-user-tags="currentUserTags"
-					:loading-status="loadingStatus"
-					:status-error="statusError"
-					@updateTagStatus="updateTagStatus"
-					@openPromptModal="openPromptModal"
-					@deleteTagMemoryOnly="deleteTagMemoryOnly"
-					@deleteTagMemory="deleteTagMemory"
-					@openAddTagModal="() => boxAddTag?.toggleModal()"
-					/>
+				:input-disabled="inputDisabled"
+				:current-user-tags="currentUserTags"
+				:current-user-documents="currentUserDocuments"
+				:loading-status="loadingStatus"
+				:status-error="statusError"
+				@updateTagStatus="updateTagStatus"
+				@openPromptModal="openPromptModal"
+				@deleteTagMemoryOnly="deleteTagMemoryOnly" 
+				@deleteTagMemory="deleteTagMemory"
+				@openAddTagModal="() => boxAddTag?.toggleModal()"
+				@refreshUserStatus="loadUserStatus"
+				/>
+
 
 				<!-- FINE DROP DOWN AGGIUNTIVO -->
 

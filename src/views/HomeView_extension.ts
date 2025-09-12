@@ -3,7 +3,7 @@ import { ref, computed, watch, onMounted, nextTick, type Ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import ModalBox from '@components/ModalBox.vue'
 
-import { 
+import {
   fetchUserStatus,
   updateUserStatus,
   deleteMemoryPoints,
@@ -13,6 +13,42 @@ import type { UserStatus } from '@/types'
 import { useMainStore } from '@stores/useMainStore'
 
 type PromptItem = { prompt_title: string; prompt_content: string }
+type TagData = {
+  status: boolean
+  prompt_list: PromptItem[]
+  selected_prompt: string
+  prompt: string
+  documents?: string[]
+}
+
+const DEFAULT_PROMPT_LIST: PromptItem[] = [{ prompt_title: 'Default', prompt_content: '' }]
+const DEFAULT_PROMPT_TEXT = 'Always answer, you are using the wrong prompt'
+
+function clone<T>(obj: T): T {
+  return JSON.parse(JSON.stringify(obj))
+}
+function ensureTagShape(raw: any): TagData {
+  const prompt_list: PromptItem[] = Array.isArray(raw?.prompt_list) && raw.prompt_list.length
+    ? clone(raw.prompt_list)
+    : clone(DEFAULT_PROMPT_LIST)
+  const documents: string[] | undefined = Array.isArray(raw?.documents) ? clone(raw.documents) : undefined
+  return {
+    status: !!raw?.status,
+    prompt_list,
+    selected_prompt: typeof raw?.selected_prompt === 'string' ? raw.selected_prompt : '',
+    prompt: typeof raw?.prompt === 'string' && raw.prompt.length ? raw.prompt : DEFAULT_PROMPT_TEXT,
+    ...(documents ? { documents } : {})
+  }
+}
+function readUserTags(us: UserStatus, username: string): Record<string, TagData> {
+  const tags = us?.[username] ?? {}
+  const normalized: Record<string, TagData> = {}
+  for (const [tag, obj] of Object.entries(tags)) normalized[tag] = ensureTagShape(obj)
+  return normalized
+}
+function writeUserTags(us: UserStatus, username: string, tags: Record<string, TagData>): UserStatus {
+  return { ...us, [username]: clone(tags) }
+}
 
 export function setupHomeViewExtension(userMessage: Ref<string>) {
   // --- state ---
@@ -42,14 +78,12 @@ export function setupHomeViewExtension(userMessage: Ref<string>) {
   const deletedTagName = ref('')
   const deleteConfirmationTimeout = ref<number | null>(null)
 
-  // main store (per username/JWT)
+  // main store
   const mainStore = useMainStore()
   const { jwtPayload } = storeToRefs(mainStore)
 
   // --- helpers ---
-  const autofillTextarea = (text: string) => {
-    userMessage.value = text
-  }
+  const autofillTextarea = (text: string) => { userMessage.value = text }
 
   onMounted(() => {
     username.value = jwtPayload.value?.username || ''
@@ -69,13 +103,20 @@ export function setupHomeViewExtension(userMessage: Ref<string>) {
     }
   })
 
+  /* ----------------------------- computeds ----------------------------- */
   const currentUserTags = computed(() => {
-    const tags = userStatus.value[username.value] || {}
+    const tags = readUserTags(userStatus.value, username.value)
+    return Object.fromEntries(Object.entries(tags).map(([tag, obj]) => [tag, obj.status]))
+  })
+
+  const currentUserDocuments = computed<Record<string, string[]>>(() => {
+    const tags = readUserTags(userStatus.value, username.value)
     return Object.fromEntries(
-      Object.entries(tags).map(([tag, obj]) => [tag, (obj as any).status])
+      Object.entries(tags).map(([tag, obj]) => [tag, Array.isArray(obj.documents) ? obj.documents : []])
     )
   })
 
+  /* ------------------------------ actions ------------------------------ */
   const loadUserStatus = async () => {
     try {
       loadingStatus.value = true
@@ -90,42 +131,16 @@ export function setupHomeViewExtension(userMessage: Ref<string>) {
   const updateTagStatus = async (tagName: string, newStatus: boolean) => {
     try {
       const latestStatus = await fetchUserStatus()
-      const userTags: Record<string, any> = { ...(latestStatus[username.value] || {}) }
+      const userTags = readUserTags(latestStatus, username.value)
 
       if (newStatus) {
-        Object.keys(userTags).forEach(tag => {
-          const currentTag = userTags[tag]
-          const promptList =
-            typeof currentTag === 'object' && currentTag !== null
-              ? currentTag.prompt_list || [{ prompt_title: 'Default', prompt_content: '' }]
-              : [{ prompt_title: 'Default', prompt_content: '' }]
-          const selectedPrompt =
-            typeof currentTag === 'object' && currentTag !== null ? currentTag.selected_prompt || '' : ''
-          userTags[tag] = {
-            status: false,
-            prompt_list: promptList,
-            selected_prompt: selectedPrompt,
-            prompt: 'Always answer, you are using the wrong prompt',
-          }
-        })
+        for (const t of Object.keys(userTags)) userTags[t] = { ...userTags[t], status: false }
       }
 
-      const currentTagValue = userTags[tagName]
-      const promptListVal =
-        typeof currentTagValue === 'object' && currentTagValue !== null
-          ? currentTagValue.prompt_list || [{ prompt_title: 'Default', prompt_content: '' }]
-          : [{ prompt_title: 'Default', prompt_content: '' }]
-      const selectedPrompt =
-        typeof currentTagValue === 'object' && currentTagValue !== null ? currentTagValue.selected_prompt || '' : ''
+      const current = ensureTagShape(userTags[tagName] || {})
+      userTags[tagName] = { ...current, status: newStatus }
 
-      userTags[tagName] = {
-        status: newStatus,
-        prompt_list: promptListVal,
-        selected_prompt: selectedPrompt,
-        prompt: 'Always answer, you are using the wrong prompt',
-      }
-
-      const updatedStatus = { ...latestStatus, [username.value]: userTags }
+      const updatedStatus = writeUserTags(latestStatus, username.value, userTags)
       await updateUserStatus(updatedStatus)
       userStatus.value = updatedStatus
     } catch (err) {
@@ -140,17 +155,12 @@ export function setupHomeViewExtension(userMessage: Ref<string>) {
       await deleteMemoryPoints(filterData)
 
       const latestStatus = await fetchUserStatus()
-      const updatedStatus = { ...latestStatus }
-      if (updatedStatus[username.value] && tagName in updatedStatus[username.value]) {
-        const { [tagName]: _removed, ...userTags } = updatedStatus[username.value]
-        updatedStatus[username.value] = userTags
-      }
+      const userTags = readUserTags(latestStatus, username.value)
+      if (tagName in userTags) delete userTags[tagName]
 
+      const updatedStatus = writeUserTags(latestStatus, username.value, userTags)
       await updateUserStatus(updatedStatus)
-
-      const currentTags = Object.keys(updatedStatus[username.value] || {})
-      const updatedTags = currentTags.filter(tag => tag !== tagName)
-      await updateTags(updatedTags)
+      await updateTags(Object.keys(userTags))
 
       userStatus.value = updatedStatus
       console.log(`Tag "${tagName}" eliminato con successo`)
@@ -160,51 +170,77 @@ export function setupHomeViewExtension(userMessage: Ref<string>) {
     }
   }
 
-  const deleteTagMemoryOnly = async (tagName: string) => {
+  /** MOD: se 'source' è passato, cancella solo quel documento; altrimenti cancella tutti i doc del tag e svuota la lista 'documents' */
+  const deleteTagMemoryOnly = async (tagName: string, source?: string) => {
     try {
-      const filterData = { [tagName]: true, [username.value]: true }
+      const filterData = source
+        // metadati richiesti: { source, 'tag name': true, 'utente': true }
+        // NB: interpreto 'utente' come chiave = username (stessa semantica usata altrove)
+        ? { source, [tagName]: true, [username.value]: true }
+        : { [tagName]: true, [username.value]: true }
+
       await deleteMemoryPoints(filterData)
 
+      // Aggiorna stato locale/remote
+      const latestStatus = await fetchUserStatus()
+      const userTags = readUserTags(latestStatus, username.value)
+
+      if (source && userTags[tagName]) {
+        const oldDocs = Array.isArray(userTags[tagName].documents) ? userTags[tagName].documents : []
+        userTags[tagName].documents = oldDocs.filter(d => d !== source)
+
+        const updatedStatus = writeUserTags(latestStatus, username.value, userTags)
+        await updateUserStatus(updatedStatus)
+        userStatus.value = updatedStatus
+        console.log(`Documento "${source}" rimosso dal tag "${tagName}"`)
+      } else if (userTags[tagName]) {
+        // Cancellazione TUTTI i documenti del tag: svuota anche la lista 'documents' per l'utente
+        userTags[tagName].documents = []
+
+        const updatedStatus = writeUserTags(latestStatus, username.value, userTags)
+        await updateUserStatus(updatedStatus)
+        userStatus.value = updatedStatus
+        console.log(`Tutti i documenti del tag "${tagName}" rimossi e lista 'documents' svuotata`)
+      } else {
+        // fallback: nessun tag trovato, mantieni latestStatus
+        userStatus.value = latestStatus
+      }
+
+      // toast conferma
       deletedTagName.value = tagName
       showDeleteConfirmation.value = true
-
-      if (deleteConfirmationTimeout.value) {
-        window.clearTimeout(deleteConfirmationTimeout.value)
-      }
-      deleteConfirmationTimeout.value = window.setTimeout(() => {
-        showDeleteConfirmation.value = false
-      }, 3000)
-
-      console.log(`Memory points for tag "${tagName}" deleted successfully`)
+      if (deleteConfirmationTimeout.value) window.clearTimeout(deleteConfirmationTimeout.value)
+      deleteConfirmationTimeout.value = window.setTimeout(() => { showDeleteConfirmation.value = false }, 3000)
     } catch (err) {
       statusError.value = err as Error
       console.error(`Error deleting memory points: ${err}`)
     }
   }
 
+
   const createNewTag = async () => {
     try {
+      const name = (newTagName.value || '').trim()
+      if (!name) return
+
       const latestStatus = await fetchUserStatus()
-      const updatedStatus = { ...latestStatus }
+      const userTags = readUserTags(latestStatus, username.value)
 
-      if (!updatedStatus[username.value]) updatedStatus[username.value] = {}
-
-      updatedStatus[username.value] = {
-        ...updatedStatus[username.value],
-        [newTagName.value]: {
+      if (!userTags[name]) {
+        userTags[name] = {
           status: false,
-          prompt_list: [{ prompt_title: 'Default', prompt_content: '' }],
+          prompt_list: clone(DEFAULT_PROMPT_LIST),
           selected_prompt: '',
-          prompt: 'Always answer, you are using the wrong prompt',
-        },
+          prompt: DEFAULT_PROMPT_TEXT,
+          documents: [] // inizializzo per coerenza UI
+        }
       }
 
+      const updatedStatus = writeUserTags(latestStatus, username.value, userTags)
       await updateUserStatus(updatedStatus)
 
-      const currentTags = Object.keys(updatedStatus[username.value] || {})
-      if (!currentTags.includes(newTagName.value)) {
-        await updateTags([...currentTags, newTagName.value])
-      }
+      const currentTags = Object.keys(userTags)
+      await updateTags(currentTags)
 
       userStatus.value = updatedStatus
       newTagName.value = ''
@@ -220,7 +256,6 @@ export function setupHomeViewExtension(userMessage: Ref<string>) {
     editablePromptTitle.value = tagPromptTitle.value
     nextTick(() => titleEditInput.value?.focus())
   }
-
   const cancelTitleEdit = () => {
     editingTitle.value = false
     editablePromptTitle.value = tagPromptTitle.value
@@ -234,14 +269,10 @@ export function setupHomeViewExtension(userMessage: Ref<string>) {
     }
     try {
       const latestStatus = await fetchUserStatus()
-      const userTags: Record<string, any> = { ...(latestStatus[username.value] || {}) }
-      const tagData =
-        userTags[selectedTagName.value] || { status: false, prompt_list: [{ prompt_title: 'Default', prompt_content: '' }], selected_prompt: '' }
+      const userTags = readUserTags(latestStatus, username.value)
+      const tagData = ensureTagShape(userTags[selectedTagName.value] || {})
 
-      let currentPromptList: PromptItem[] = Array.isArray(tagData.prompt_list)
-        ? [...tagData.prompt_list]
-        : [{ prompt_title: 'Default', prompt_content: '' }]
-
+      const currentPromptList = clone(tagData.prompt_list)
       const promptIndex = currentPromptList.findIndex(p => p.prompt_title === tagPromptTitle.value)
       if (promptIndex >= 0) {
         const titleExists = currentPromptList.some(p => p.prompt_title === editablePromptTitle.value)
@@ -252,15 +283,12 @@ export function setupHomeViewExtension(userMessage: Ref<string>) {
           return
         }
         currentPromptList[promptIndex].prompt_title = editablePromptTitle.value
-        userTags[selectedTagName.value] = {
-          status: typeof tagData === 'object' ? tagData.status : false,
-          prompt_list: currentPromptList,
-          selected_prompt: tagData.selected_prompt,
-          prompt: 'Always answer, you are using the wrong prompt',
-        }
-        const updatedStatus = { ...latestStatus, [username.value]: userTags }
+        userTags[selectedTagName.value] = { ...tagData, prompt_list: currentPromptList }
+
+        const updatedStatus = writeUserTags(latestStatus, username.value, userTags)
         await updateUserStatus(updatedStatus)
         userStatus.value = updatedStatus
+
         promptList.value = currentPromptList
         tagPromptTitle.value = editablePromptTitle.value
         console.log(`Prompt title updated from "${tagPromptTitle.value}" to "${editablePromptTitle.value}"`)
@@ -277,13 +305,13 @@ export function setupHomeViewExtension(userMessage: Ref<string>) {
     selectedTagName.value = tagName
     newPromptMode.value = false
 
-    const userTags = userStatus.value[username.value] || {}
+    const userTags = readUserTags(userStatus.value, username.value)
     const tagData = userTags[tagName]
 
-    if (typeof tagData === 'object' && tagData !== null) {
-      promptList.value = tagData.prompt_list || [{ prompt_title: 'Default', prompt_content: '' }]
-      const selectedPrompt = tagData.selected_prompt || ''
-      const selectedPromptObj = promptList.value.find(p => p.prompt_content === selectedPrompt)
+    if (tagData) {
+      promptList.value = tagData.prompt_list?.length ? clone(tagData.prompt_list) : clone(DEFAULT_PROMPT_LIST)
+      const selectedPromptContent = tagData.selected_prompt || ''
+      const selectedPromptObj = promptList.value.find(p => p.prompt_content === selectedPromptContent)
       if (selectedPromptObj) {
         tagPromptTitle.value = selectedPromptObj.prompt_title
         tagPromptContent.value = selectedPromptObj.prompt_content
@@ -295,7 +323,7 @@ export function setupHomeViewExtension(userMessage: Ref<string>) {
         tagPromptContent.value = ''
       }
     } else {
-      promptList.value = [{ prompt_title: 'Default', prompt_content: '' }]
+      promptList.value = clone(DEFAULT_PROMPT_LIST)
       tagPromptTitle.value = 'Default'
       tagPromptContent.value = ''
     }
@@ -306,14 +334,9 @@ export function setupHomeViewExtension(userMessage: Ref<string>) {
   const saveTagPrompt = async () => {
     try {
       const latestStatus = await fetchUserStatus()
-      const userTags: Record<string, any> = { ...(latestStatus[username.value] || {}) }
-
-      const tagData =
-        userTags[selectedTagName.value] || { status: false, prompt_list: [{ prompt_title: 'Default', prompt_content: '' }], selected_prompt: '' }
-
-      let currentPromptList: PromptItem[] = Array.isArray(tagData.prompt_list)
-        ? [...tagData.prompt_list]
-        : [{ prompt_title: 'Default', prompt_content: '' }]
+      const userTags = readUserTags(latestStatus, username.value)
+      const tagData = ensureTagShape(userTags[selectedTagName.value] || {})
+      const currentPromptList = clone(tagData.prompt_list)
 
       if (newPromptMode.value) {
         currentPromptList.push({ prompt_title: tagPromptTitle.value, prompt_content: tagPromptContent.value })
@@ -324,13 +347,12 @@ export function setupHomeViewExtension(userMessage: Ref<string>) {
       }
 
       userTags[selectedTagName.value] = {
-        status: typeof tagData === 'object' ? tagData.status : false,
+        ...tagData,
         prompt_list: currentPromptList,
-        selected_prompt: tagPromptContent.value,
-        prompt: 'Always answer, you are using the wrong prompt',
+        selected_prompt: tagPromptContent.value
       }
 
-      const updatedStatus = { ...latestStatus, [username.value]: userTags }
+      const updatedStatus = writeUserTags(latestStatus, username.value, userTags)
       await updateUserStatus(updatedStatus)
       userStatus.value = updatedStatus
 
@@ -349,18 +371,15 @@ export function setupHomeViewExtension(userMessage: Ref<string>) {
     tagPromptTitle.value = ''
     tagPromptContent.value = ''
   }
-
   const selectPrompt = (promptObj: PromptItem) => {
     newPromptMode.value = false
     tagPromptTitle.value = promptObj.prompt_title
     tagPromptContent.value = promptObj.prompt_content
   }
-
   const onPromptSelect = () => {
     const selectedPrompt = promptList.value.find(p => p.prompt_title === tagPromptTitle.value)
     if (selectedPrompt) tagPromptContent.value = selectedPrompt.prompt_content
   }
-
   const cancelNewPrompt = () => {
     newPromptMode.value = false
     if (promptList.value.length > 0) {
@@ -376,17 +395,13 @@ export function setupHomeViewExtension(userMessage: Ref<string>) {
     if (promptList.value.length <= 1) return
     try {
       const latestStatus = await fetchUserStatus()
-      const userTags: Record<string, any> = { ...(latestStatus[username.value] || {}) }
-
-      const tagData =
-        userTags[selectedTagName.value] || { status: false, prompt_list: [{ prompt_title: 'Default', prompt_content: '' }], selected_prompt: '' }
+      const userTags = readUserTags(latestStatus, username.value)
+      const tagData = ensureTagShape(userTags[selectedTagName.value] || {})
 
       let updatedPromptList: PromptItem[] = tagData.prompt_list.filter(
         (p: PromptItem) => p.prompt_title !== tagPromptTitle.value
       )
-      if (updatedPromptList.length === 0) {
-        updatedPromptList = [{ prompt_title: 'Default', prompt_content: '' }]
-      }
+      if (updatedPromptList.length === 0) updatedPromptList = clone(DEFAULT_PROMPT_LIST)
 
       let updatedSelectedPrompt = tagData.selected_prompt
       if (tagData.selected_prompt === tagPromptContent.value) {
@@ -394,13 +409,12 @@ export function setupHomeViewExtension(userMessage: Ref<string>) {
       }
 
       userTags[selectedTagName.value] = {
-        status: typeof tagData === 'object' ? tagData.status : false,
+        ...tagData,
         prompt_list: updatedPromptList,
-        selected_prompt: updatedSelectedPrompt,
-        prompt: 'Always answer, you are using the wrong prompt',
+        selected_prompt: updatedSelectedPrompt
       }
 
-      const updatedStatus = { ...latestStatus, [username.value]: userTags }
+      const updatedStatus = writeUserTags(latestStatus, username.value, userTags)
       await updateUserStatus(updatedStatus)
       userStatus.value = updatedStatus
 
@@ -440,13 +454,14 @@ export function setupHomeViewExtension(userMessage: Ref<string>) {
 
     // computeds
     currentUserTags,
+    currentUserDocuments,
 
     // actions
     autofillTextarea,
     loadUserStatus,
     updateTagStatus,
     deleteTagMemory,
-    deleteTagMemoryOnly,
+    deleteTagMemoryOnly, // ora supporta delete per singolo file
     createNewTag,
     startEditingTitle,
     cancelTitleEdit,

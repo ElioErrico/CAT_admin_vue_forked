@@ -148,27 +148,28 @@ export function setupHomeViewExtension(userMessage: Ref<string>) {
       userStatus.value = { ...userStatus.value }
     }
   }
+  
+// ✅ Versione corretta: elimina il tag SOLO per l'utente corrente
+const deleteTagMemory = async (tagName: string) => {
+  try {
+    const filterData = { [tagName]: true, [username.value]: true }
+    await deleteMemoryPoints(filterData)
 
-  const deleteTagMemory = async (tagName: string) => {
-    try {
-      const filterData = { [tagName]: true, [username.value]: true }
-      await deleteMemoryPoints(filterData)
+    const latestStatus = await fetchUserStatus()
+    const userTags = readUserTags(latestStatus, username.value)
+    if (tagName in userTags) delete userTags[tagName]
 
-      const latestStatus = await fetchUserStatus()
-      const userTags = readUserTags(latestStatus, username.value)
-      if (tagName in userTags) delete userTags[tagName]
+    const updatedStatus = writeUserTags(latestStatus, username.value, userTags)
+    await updateUserStatus(updatedStatus)
 
-      const updatedStatus = writeUserTags(latestStatus, username.value, userTags)
-      await updateUserStatus(updatedStatus)
-      await updateTags(Object.keys(userTags))
-
-      userStatus.value = updatedStatus
-      console.log(`Tag "${tagName}" eliminato con successo`)
-    } catch (err) {
-      statusError.value = err as Error
-      console.error(`Errore durante l'eliminazione: ${err}`)
-    }
+    userStatus.value = updatedStatus
+    console.log(`Tag "${tagName}" eliminato con successo`)
+  } catch (err) {
+    statusError.value = err as Error
+    console.error(`Errore durante l'eliminazione: ${err}`)
   }
+}
+
 
   /** MOD: se 'source' è passato, cancella solo quel documento; altrimenti cancella tutti i doc del tag e svuota la lista 'documents' */
   const deleteTagMemoryOnly = async (tagName: string, source?: string) => {
@@ -218,38 +219,37 @@ export function setupHomeViewExtension(userMessage: Ref<string>) {
   }
 
 
-  const createNewTag = async () => {
-    try {
-      const name = (newTagName.value || '').trim()
-      if (!name) return
+  // ✅ Versione corretta: crea il tag SOLO per l'utente corrente
+const createNewTag = async () => {
+  try {
+    const name = (newTagName.value || '').trim()
+    if (!name) return
 
-      const latestStatus = await fetchUserStatus()
-      const userTags = readUserTags(latestStatus, username.value)
+    const latestStatus = await fetchUserStatus()
+    const userTags = readUserTags(latestStatus, username.value)
 
-      if (!userTags[name]) {
-        userTags[name] = {
-          status: false,
-          prompt_list: clone(DEFAULT_PROMPT_LIST),
-          selected_prompt: '',
-          prompt: DEFAULT_PROMPT_TEXT,
-          documents: [] // inizializzo per coerenza UI
-        }
+    if (!userTags[name]) {
+      userTags[name] = {
+        status: false,
+        prompt_list: clone(DEFAULT_PROMPT_LIST),
+        selected_prompt: '',
+        prompt: DEFAULT_PROMPT_TEXT,
+        documents: [] // inizializzo per coerenza UI
       }
-
-      const updatedStatus = writeUserTags(latestStatus, username.value, userTags)
-      await updateUserStatus(updatedStatus)
-
-      const currentTags = Object.keys(userTags)
-      await updateTags(currentTags)
-
-      userStatus.value = updatedStatus
-      newTagName.value = ''
-      boxAddTag.value?.toggleModal()
-    } catch (err) {
-      statusError.value = err as Error
-      console.error(`Errore durante la creazione del tag: ${err}`)
     }
+
+    const updatedStatus = writeUserTags(latestStatus, username.value, userTags)
+    await updateUserStatus(updatedStatus)
+
+    userStatus.value = updatedStatus
+    newTagName.value = ''
+    boxAddTag.value?.toggleModal()
+  } catch (err) {
+    statusError.value = err as Error
+    console.error(`Errore durante la creazione del tag: ${err}`)
   }
+}
+
 
   const startEditingTitle = () => {
     editingTitle.value = true

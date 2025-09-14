@@ -1,3 +1,5 @@
+/** src\views\TagDropdown.vue
+
 <script setup lang="ts">
 import { reactive, onBeforeUnmount } from 'vue'
 
@@ -56,6 +58,10 @@ function scheduleHide(tag: string) {
 onBeforeUnmount(() => {
   Object.values(hideTimers).forEach(t => t && clearTimeout(t))
 })
+
+const hasDocs = (tag: string) =>
+  (props.currentUserDocuments[tag]?.length ?? 0) > 0
+  
 </script>
 
 <template>
@@ -149,9 +155,10 @@ onBeforeUnmount(() => {
                 <!-- :disabled="!props.currentUserDocuments[String(tagName)]?.length" -->
                 <button
                   class="btn btn-xs btn-error btn-outline gap-1"
+                  :disabled="!hasDocs(String(tagName))"
+                  :class="{ 'btn-disabled': !hasDocs(String(tagName)) }" 
                   @click.stop="$emit('deleteTagMemoryOnly', String(tagName))"
-                  title="Elimina tutti i documenti del tag"
-                >
+                  :title="hasDocs(String(tagName)) ? 'Elimina tutti i documenti del tag' : 'Nessun documento da eliminare'">
                   <heroicons-trash-solid class="size-3" />
                   Elimina tutti
                 </button>

@@ -3,12 +3,9 @@ import { ref, computed, watch, onMounted, nextTick, type Ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import ModalBox from '@components/ModalBox.vue'
 
-import {
-  fetchUserStatus,
-  updateUserStatus,
-  deleteMemoryPoints,
-  updateTags
-} from '@/services/CustomApiService'
+// ✅ tieni solo questi
+import { fetchUserStatus, updateUserStatus, deleteMemoryPoints } from '@/services/CustomApiService'
+
 import type { UserStatus } from '@/types'
 import { useMainStore } from '@stores/useMainStore'
 
@@ -131,16 +128,28 @@ export function setupHomeViewExtension(userMessage: Ref<string>) {
   const updateTagStatus = async (tagName: string, newStatus: boolean) => {
     try {
       const latestStatus = await fetchUserStatus()
-      const userTags = readUserTags(latestStatus, username.value)
-
-      if (newStatus) {
-        for (const t of Object.keys(userTags)) userTags[t] = { ...userTags[t], status: false }
+      const userTags = { ...(latestStatus[username.value] || {}) }
+  
+      // ❌ Niente creazioni implicite
+      if (!Object.prototype.hasOwnProperty.call(userTags, tagName)) {
+        console.warn(`[updateTagStatus] Tag inesistente: "${tagName}". Skip.`)
+        return
       }
-
-      const current = ensureTagShape(userTags[tagName] || {})
-      userTags[tagName] = { ...current, status: newStatus }
-
-      const updatedStatus = writeUserTags(latestStatus, username.value, userTags)
+  
+      // Se attivo un tag, disattivo gli altri
+      if (newStatus) {
+        for (const t of Object.keys(userTags)) {
+          if (t !== tagName) {
+            const cur = userTags[t]
+            if (cur && typeof cur === 'object') userTags[t] = { ...cur, status: false }
+          }
+        }
+      }
+  
+      const cur = userTags[tagName]
+      userTags[tagName] = { ...(cur || {}), status: newStatus }
+  
+      const updatedStatus = { ...latestStatus, [username.value]: userTags }
       await updateUserStatus(updatedStatus)
       userStatus.value = updatedStatus
     } catch (err) {
@@ -149,26 +158,28 @@ export function setupHomeViewExtension(userMessage: Ref<string>) {
     }
   }
   
-// ✅ Versione corretta: elimina il tag SOLO per l'utente corrente
-const deleteTagMemory = async (tagName: string) => {
-  try {
-    const filterData = { [tagName]: true, [username.value]: true }
-    await deleteMemoryPoints(filterData)
-
-    const latestStatus = await fetchUserStatus()
-    const userTags = readUserTags(latestStatus, username.value)
-    if (tagName in userTags) delete userTags[tagName]
-
-    const updatedStatus = writeUserTags(latestStatus, username.value, userTags)
-    await updateUserStatus(updatedStatus)
-
-    userStatus.value = updatedStatus
-    console.log(`Tag "${tagName}" eliminato con successo`)
-  } catch (err) {
-    statusError.value = err as Error
-    console.error(`Errore durante l'eliminazione: ${err}`)
+  
+  const deleteTagMemory = async (tagName: string) => {
+    try {
+      const filterData = { [tagName]: true, [username.value]: true }
+      await deleteMemoryPoints(filterData)
+  
+      const latestStatus = await fetchUserStatus()
+      const updatedStatus = { ...latestStatus }
+      if (updatedStatus[username.value] && tagName in updatedStatus[username.value]) {
+        const { [tagName]: _removed, ...rest } = updatedStatus[username.value]
+        updatedStatus[username.value] = rest
+      }
+  
+      await updateUserStatus(updatedStatus)
+      userStatus.value = updatedStatus
+      console.log(`Tag "${tagName}" eliminato con successo`)
+    } catch (err) {
+      statusError.value = err as Error
+      console.error(`Errore durante l'eliminazione: ${err}`)
+    }
   }
-}
+  
 
 
   /** MOD: se 'source' è passato, cancella solo quel documento; altrimenti cancella tutti i doc del tag e svuota la lista 'documents' */
@@ -219,36 +230,36 @@ const deleteTagMemory = async (tagName: string) => {
   }
 
 
-  // ✅ Versione corretta: crea il tag SOLO per l'utente corrente
-const createNewTag = async () => {
-  try {
-    const name = (newTagName.value || '').trim()
-    if (!name) return
-
-    const latestStatus = await fetchUserStatus()
-    const userTags = readUserTags(latestStatus, username.value)
-
-    if (!userTags[name]) {
-      userTags[name] = {
-        status: false,
-        prompt_list: clone(DEFAULT_PROMPT_LIST),
-        selected_prompt: '',
-        prompt: DEFAULT_PROMPT_TEXT,
-        documents: [] // inizializzo per coerenza UI
+  const createNewTag = async () => {
+    try {
+      const name = (newTagName.value || '').trim()
+      if (!name) return
+  
+      const latestStatus = await fetchUserStatus()
+      const userTags = { ...(latestStatus[username.value] || {}) }
+  
+      if (!Object.prototype.hasOwnProperty.call(userTags, name)) {
+        userTags[name] = {
+          status: false,
+          prompt_list: [{ prompt_title: 'Default', prompt_content: '' }],
+          selected_prompt: '',
+          prompt: 'Always answer, you are using the wrong prompt',
+          documents: []
+        }
       }
+  
+      const updatedStatus = { ...latestStatus, [username.value]: userTags }
+      await updateUserStatus(updatedStatus)
+  
+      userStatus.value = updatedStatus
+      newTagName.value = ''
+      boxAddTag.value?.toggleModal()
+    } catch (err) {
+      statusError.value = err as Error
+      console.error(`Errore durante la creazione del tag: ${err}`)
     }
-
-    const updatedStatus = writeUserTags(latestStatus, username.value, userTags)
-    await updateUserStatus(updatedStatus)
-
-    userStatus.value = updatedStatus
-    newTagName.value = ''
-    boxAddTag.value?.toggleModal()
-  } catch (err) {
-    statusError.value = err as Error
-    console.error(`Errore durante la creazione del tag: ${err}`)
   }
-}
+  
 
 
   const startEditingTitle = () => {
@@ -269,27 +280,34 @@ const createNewTag = async () => {
     }
     try {
       const latestStatus = await fetchUserStatus()
-      const userTags = readUserTags(latestStatus, username.value)
-      const tagData = ensureTagShape(userTags[selectedTagName.value] || {})
-
-      const currentPromptList = clone(tagData.prompt_list)
-      const promptIndex = currentPromptList.findIndex(p => p.prompt_title === tagPromptTitle.value)
-      if (promptIndex >= 0) {
-        const titleExists = currentPromptList.some(p => p.prompt_title === editablePromptTitle.value)
-        if (titleExists) {
+      const userTags = { ...(latestStatus[username.value] || {}) }
+  
+      if (!Object.prototype.hasOwnProperty.call(userTags, selectedTagName.value)) {
+        console.warn(`[updatePromptTitle] Tag inesistente: "${selectedTagName.value}".`)
+        editingTitle.value = false
+        return
+      }
+  
+      const tagData = userTags[selectedTagName.value]
+      const list = Array.isArray(tagData.prompt_list) ? [...tagData.prompt_list] : []
+  
+      const idx = list.findIndex(p => p.prompt_title === tagPromptTitle.value)
+      if (idx >= 0) {
+        const exists = list.some(p => p.prompt_title === editablePromptTitle.value)
+        if (exists) {
           editablePromptTitle.value = tagPromptTitle.value
           console.error(`A prompt with title "${editablePromptTitle.value}" already exists`)
           editingTitle.value = false
           return
         }
-        currentPromptList[promptIndex].prompt_title = editablePromptTitle.value
-        userTags[selectedTagName.value] = { ...tagData, prompt_list: currentPromptList }
-
-        const updatedStatus = writeUserTags(latestStatus, username.value, userTags)
+        list[idx].prompt_title = editablePromptTitle.value
+        userTags[selectedTagName.value] = { ...tagData, prompt_list: list }
+  
+        const updatedStatus = { ...latestStatus, [username.value]: userTags }
         await updateUserStatus(updatedStatus)
         userStatus.value = updatedStatus
-
-        promptList.value = currentPromptList
+  
+        promptList.value = list
         tagPromptTitle.value = editablePromptTitle.value
         console.log(`Prompt title updated from "${tagPromptTitle.value}" to "${editablePromptTitle.value}"`)
       }
@@ -300,71 +318,83 @@ const createNewTag = async () => {
     }
     editingTitle.value = false
   }
+  
 
   const openPromptModal = (tagName: string) => {
     selectedTagName.value = tagName
     newPromptMode.value = false
-
-    const userTags = readUserTags(userStatus.value, username.value)
+  
+    const userTags = userStatus.value[username.value] || {}
     const tagData = userTags[tagName]
-
-    if (tagData) {
-      promptList.value = tagData.prompt_list?.length ? clone(tagData.prompt_list) : clone(DEFAULT_PROMPT_LIST)
-      const selectedPromptContent = tagData.selected_prompt || ''
-      const selectedPromptObj = promptList.value.find(p => p.prompt_content === selectedPromptContent)
-      if (selectedPromptObj) {
-        tagPromptTitle.value = selectedPromptObj.prompt_title
-        tagPromptContent.value = selectedPromptObj.prompt_content
-      } else if (promptList.value.length > 0) {
-        tagPromptTitle.value = promptList.value[0].prompt_title
-        tagPromptContent.value = promptList.value[0].prompt_content
-      } else {
-        tagPromptTitle.value = 'Default'
-        tagPromptContent.value = ''
-      }
+  
+    if (!tagData) {
+      console.warn(`[openPromptModal] Tag inesistente: "${tagName}".`)
+      return
+    }
+  
+    promptList.value = Array.isArray(tagData.prompt_list) && tagData.prompt_list.length
+      ? [...tagData.prompt_list]
+      : [{ prompt_title: 'Default', prompt_content: '' }]
+  
+    const selected = tagData.selected_prompt || ''
+    const found = promptList.value.find(p => p.prompt_content === selected)
+  
+    if (found) {
+      tagPromptTitle.value = found.prompt_title
+      tagPromptContent.value = found.prompt_content
+    } else if (promptList.value.length) {
+      tagPromptTitle.value = promptList.value[0].prompt_title
+      tagPromptContent.value = promptList.value[0].prompt_content
     } else {
-      promptList.value = clone(DEFAULT_PROMPT_LIST)
       tagPromptTitle.value = 'Default'
       tagPromptContent.value = ''
     }
-
+  
     boxPrompt.value?.toggleModal()
   }
+  
 
   const saveTagPrompt = async () => {
     try {
       const latestStatus = await fetchUserStatus()
-      const userTags = readUserTags(latestStatus, username.value)
-      const tagData = ensureTagShape(userTags[selectedTagName.value] || {})
-      const currentPromptList = clone(tagData.prompt_list)
-
-      if (newPromptMode.value) {
-        currentPromptList.push({ prompt_title: tagPromptTitle.value, prompt_content: tagPromptContent.value })
-      } else {
-        const promptIndex = currentPromptList.findIndex(p => p.prompt_title === tagPromptTitle.value)
-        if (promptIndex >= 0) currentPromptList[promptIndex].prompt_content = tagPromptContent.value
-        else currentPromptList.push({ prompt_title: tagPromptTitle.value, prompt_content: tagPromptContent.value })
+      const userTags = { ...(latestStatus[username.value] || {}) }
+  
+      if (!Object.prototype.hasOwnProperty.call(userTags, selectedTagName.value)) {
+        console.warn(`[saveTagPrompt] Tag inesistente: "${selectedTagName.value}".`)
+        return
       }
-
+  
+      const tagData = userTags[selectedTagName.value]
+      const list = Array.isArray(tagData.prompt_list) ? [...tagData.prompt_list] : []
+  
+      if (newPromptMode.value) {
+        list.push({ prompt_title: tagPromptTitle.value, prompt_content: tagPromptContent.value })
+      } else {
+        const idx = list.findIndex(p => p.prompt_title === tagPromptTitle.value)
+        if (idx >= 0) list[idx].prompt_content = tagPromptContent.value
+        else list.push({ prompt_title: tagPromptTitle.value, prompt_content: tagPromptContent.value })
+      }
+  
       userTags[selectedTagName.value] = {
         ...tagData,
-        prompt_list: currentPromptList,
+        prompt_list: list,
         selected_prompt: tagPromptContent.value
       }
-
-      const updatedStatus = writeUserTags(latestStatus, username.value, userTags)
+  
+      const updatedStatus = { ...latestStatus, [username.value]: userTags }
       await updateUserStatus(updatedStatus)
       userStatus.value = updatedStatus
-
-      promptList.value = currentPromptList
+  
+      promptList.value = list
       newPromptMode.value = false
-
+  
       console.log(`Prompt for tag "${selectedTagName.value}" saved successfully`)
     } catch (err) {
       statusError.value = err as Error
       console.error(`Error saving prompt: ${err}`)
     }
   }
+  
 
   const createNewPrompt = () => {
     newPromptMode.value = true
@@ -395,39 +425,38 @@ const createNewTag = async () => {
     if (promptList.value.length <= 1) return
     try {
       const latestStatus = await fetchUserStatus()
-      const userTags = readUserTags(latestStatus, username.value)
-      const tagData = ensureTagShape(userTags[selectedTagName.value] || {})
-
-      let updatedPromptList: PromptItem[] = tagData.prompt_list.filter(
-        (p: PromptItem) => p.prompt_title !== tagPromptTitle.value
-      )
-      if (updatedPromptList.length === 0) updatedPromptList = clone(DEFAULT_PROMPT_LIST)
-
-      let updatedSelectedPrompt = tagData.selected_prompt
-      if (tagData.selected_prompt === tagPromptContent.value) {
-        updatedSelectedPrompt = updatedPromptList[0].prompt_content
+      const userTags = { ...(latestStatus[username.value] || {}) }
+  
+      if (!Object.prototype.hasOwnProperty.call(userTags, selectedTagName.value)) {
+        console.warn(`[deleteCurrentPrompt] Tag inesistente: "${selectedTagName.value}".`)
+        return
       }
-
-      userTags[selectedTagName.value] = {
-        ...tagData,
-        prompt_list: updatedPromptList,
-        selected_prompt: updatedSelectedPrompt
-      }
-
-      const updatedStatus = writeUserTags(latestStatus, username.value, userTags)
+  
+      const tagData = userTags[selectedTagName.value]
+      let list = Array.isArray(tagData.prompt_list) ? [...tagData.prompt_list] : []
+      list = list.filter(p => p.prompt_title !== tagPromptTitle.value)
+      if (list.length === 0) list = [{ prompt_title: 'Default', prompt_content: '' }]
+  
+      let selected = tagData.selected_prompt
+      if (selected === tagPromptContent.value) selected = list[0].prompt_content
+  
+      userTags[selectedTagName.value] = { ...tagData, prompt_list: list, selected_prompt: selected }
+  
+      const updatedStatus = { ...latestStatus, [username.value]: userTags }
       await updateUserStatus(updatedStatus)
       userStatus.value = updatedStatus
-
-      promptList.value = updatedPromptList
-      tagPromptTitle.value = updatedPromptList[0].prompt_title
-      tagPromptContent.value = updatedPromptList[0].prompt_content
-
+  
+      promptList.value = list
+      tagPromptTitle.value = list[0].prompt_title
+      tagPromptContent.value = list[0].prompt_content
+  
       console.log(`Prompt "${tagPromptTitle.value}" deleted successfully`)
     } catch (err) {
       statusError.value = err as Error
       console.error(`Error deleting prompt: ${err}`)
     }
   }
+  
 
   // --- public API ---
   return {

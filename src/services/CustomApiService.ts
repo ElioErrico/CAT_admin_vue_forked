@@ -1,6 +1,7 @@
 // src\services\CustomApiService.ts
 
 import type { UserStatus } from '@/types'
+import type { ToolsStatusJSON } from "@/types/user_tools_JSONSchema";
 
 // Get API_BASE dynamically similar to ApiService.ts
 const getApiBase = () => {
@@ -52,3 +53,20 @@ export const updateTags = async (tags: string[]): Promise<void> => {
     })
     if (!response.ok) throw new Error('Failed to update tags')
 }
+
+// GET tools_status.json
+export const fetchToolsStatus = async (): Promise<ToolsStatusJSON> => {
+    const response = await fetch(`${API_BASE}/custom/tools-status`);
+    if (!response.ok) throw new Error("Failed to fetch tools status");
+    return response.json();
+  };
+  
+  // POST tools_status.json (sovrascrive intero file)
+  export const updateToolsStatus = async (data: ToolsStatusJSON): Promise<void> => {
+    const response = await fetch(`${API_BASE}/custom/tools-status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error("Failed to update tools status");
+  };

@@ -5,6 +5,8 @@ import { useMemory } from '@stores/useMemory'
 import ModalBox from '@components/ModalBox.vue'
 import { capitalize } from 'lodash'
 import TagDropdown from './TagDropdown.vue'
+import ToolsDropdown from './ToolsDropdown.vue'
+
 
 
 const route = useRoute()
@@ -372,11 +374,12 @@ const {
 				@refreshUserStatus="loadUserStatus"
 				/>
 
-
 				<!-- FINE DROP DOWN AGGIUNTIVO -->
-
-
-
+				<!-- DROP DOWN TOOLS -->
+				<ToolsDropdown
+				:input-disabled="inputDisabled"
+				/>
+				<!-- FINE DROP DOWN TOOLS -->
 
 				<div class="relative w-full">
 					<textarea

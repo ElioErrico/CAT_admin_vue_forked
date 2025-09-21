@@ -1,7 +1,7 @@
 /** src\views\TagDropdown.vue
 
 <script setup lang="ts">
-import { reactive, onBeforeUnmount } from 'vue'
+import { reactive, ref } from 'vue'
 
 interface Props {
   inputDisabled: boolean
@@ -25,39 +25,14 @@ const emit = defineEmits<{
   (e: 'refreshUserStatus'): void
 }>()
 
-/** Stato per visibilità tooltip documenti per singolo tag */
-const openDocs: Record<string, boolean> = reactive({})
-/** Timer di hide differito per singolo tag */
-const hideTimers: Record<string, number | undefined> = reactive({})
+/** Tag attualmente aperto (lista documenti) */
+const openDocsTag = ref<string | null>(null)
 
-function showDocs(tag: string) {
-  emit('refreshUserStatus') // aggiorna sempre lo stato appena apro
-  openDocs[tag] = true
-  if (hideTimers[tag]) {
-    clearTimeout(hideTimers[tag]!)
-    hideTimers[tag] = undefined
-  }
-}
-
+/** Apertura/chiusura SOLO su click */
 function toggleDocs(tag: string) {
-  if (openDocs[tag]) {
-    scheduleHide(tag) // chiudi con il piccolo delay, comportamento uniforme
-  } else {
-    showDocs(tag)
-  }
+  openDocsTag.value = openDocsTag.value === tag ? null : tag
 }
 
-function scheduleHide(tag: string) {
-  if (hideTimers[tag]) clearTimeout(hideTimers[tag]!)
-  hideTimers[tag] = window.setTimeout(() => {
-    openDocs[tag] = false
-    hideTimers[tag] = undefined
-  }, 300) // 0.3 s di tolleranza
-}
-
-onBeforeUnmount(() => {
-  Object.values(hideTimers).forEach(t => t && clearTimeout(t))
-})
 
 const hasDocs = (tag: string) =>
   (props.currentUserDocuments[tag]?.length ?? 0) > 0
@@ -125,11 +100,8 @@ const hasDocs = (tag: string) =>
           </span>
 
           <!-- "Delete content" ORA APRE SOLO LA LISTA DOCUMENTI -->
-          <span
-            class="relative"
-            @mouseenter="showDocs(String(tagName))"
-            @mouseleave="scheduleHide(String(tagName))"
-          >
+          <span class="relative">
+
             <!-- Trigger: non cancella più nulla -->
             <span
               class="rounded-lg p-1 text-warning cursor-pointer hover:bg-base-200"
@@ -143,10 +115,8 @@ const hasDocs = (tag: string) =>
 
             <!-- Tooltip (v-show + delay hide 0.3s) -->
             <div
-              v-show="openDocs[String(tagName)]"
+              v-show="openDocsTag === String(tagName)"
               class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 min-w-[18rem] max-w-[26rem] max-h-60 overflow-auto rounded-lg border border-base-300 bg-base-100 p-3 text-sm shadow-xl z-20"
-              @mouseenter="showDocs(String(tagName))"
-              @mouseleave="scheduleHide(String(tagName))"
             >
               <div class="flex items-center justify-between mb-2">
                 <div class="font-semibold">Documenti collegati</div>
